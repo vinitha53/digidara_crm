@@ -1,0 +1,23 @@
+{
+  "name": "digidara-crm",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ./node_modules/vite/bin/vite.js --host 0.0.0.0",
+    "build": "node ./node_modules/vite/bin/vite.js build",
+    "preview": "node ./node_modules/vite/bin/vite.js preview"
+  },
+  "dependencies": {
+    "@tabler/icons-react": "3.31.0",
+    "axios": "1.7.9",
+    "vite": "5.4.11",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-router-dom": "6.28.0",
+    "recharts": "2.13.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.3.4"
+  }
+}

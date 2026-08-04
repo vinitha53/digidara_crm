@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.python-version
+instance/
+venv/
+ENV/
+env/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Flask
+*.db
+*.sqlite3
+*.sqlite
+instance/*.pem
+
+# Environment variables
+.env
+.env.*
+*.env
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log
+
+# Vite / build
+dist/
+build/
+*.local
+
+# Log files
+*.log
+logs/
+
+# IDEs
+*.iml
+.idea/
+
+# Frontend specific
+/public/
+
+# Backup files
+*.bak
+*.swp
+*.swo
+*.tmp
+
+# Generated files
+*.pyc
+*.pyo
+*.pyd
+
+# Optional: keep env.example under source control
+# env.example
