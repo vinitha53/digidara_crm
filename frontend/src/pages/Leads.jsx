@@ -502,7 +502,6 @@ export default function Leads() {
       </section>
 
       <div className="lead-utility-actions">
-        <button type="button" onClick={() => setImportOpen(true)}>Import</button>
         <button type="button" onClick={exportLeads}>Export</button>
         <button type="button" onClick={findDuplicates}>Find duplicates</button>
         {can(user, "leads", "classify") && <button type="button" onClick={scoreAll}>AI rescore</button>}

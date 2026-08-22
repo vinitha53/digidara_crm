@@ -15,6 +15,13 @@ const templates = {
   "Important notice": "Hi {name}, we have an important update regarding {service}. Please reply to this message when convenient.",
 };
 
+const utilityUpdates = {
+  "Customer update": "Your service request is currently being reviewed by our team.",
+  "Follow-up": "We are waiting for your response before we can continue processing this service request.",
+  "Feedback": "Your service request has been completed. Please reply with feedback about the completed service.",
+  "Important notice": "There is an important status update on your service request. Please reply if you need clarification.",
+};
+
 export default function Communication() {
   const { user } = useAuth();
   const [customers, setCustomers] = useState([]);
@@ -28,7 +35,7 @@ export default function Communication() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
-  const [form, setForm] = useState({ recipient_id: "", template_used: "Customer update", message_body: templates["Customer update"] });
+  const [form, setForm] = useState({ recipient_id: "", template_used: "Customer update", message_body: utilityUpdates["Customer update"] });
   const [bulkForm, setBulkForm] = useState({ template_used: "Customer update", message_body: templates["Customer update"] });
 
   const load = () => Promise.all([
@@ -68,7 +75,7 @@ export default function Communication() {
 
   const chooseTemplate = (template, bulk = false) => {
     if (bulk) setBulkForm({ template_used: template, message_body: templates[template] });
-    else setForm((old) => ({ ...old, template_used: template, message_body: templates[template] }));
+    else setForm((old) => ({ ...old, template_used: template, message_body: utilityUpdates[template] }));
   };
 
   const sendSingle = (event) => {
@@ -125,7 +132,7 @@ export default function Communication() {
           <div className="communication-recipient-list">{loading && <CommunicationListSkeleton />}{!loading && visibleCustomers.map((customer) => <button type="button" className={String(customer.id) === String(form.recipient_id) ? "active" : ""} key={customer.id} onClick={() => setForm((old) => ({ ...old, recipient_id: String(customer.id) }))}><span className="recipient-check">{String(customer.id) === String(form.recipient_id) && <IconCheck size={14} />}</span><div><strong>{customer.name}</strong><span>{customer.phone}</span><small>{customer.service}</small></div><Badge tone={customer.status === "active" ? "teal" : "amber"}>{customer.status === "followup" ? "Follow-up" : customer.status}</Badge></button>)}{!loading && !visibleCustomers.length && <div className="empty compact-empty">No customers match this view.</div>}</div>
         </Card>
         <Card className="message-composer"><div className="communication-card-head"><div><span>STEP 2</span><h2>Write and send</h2></div><IconBrandWhatsapp size={24} /></div>
-          <form onSubmit={sendSingle} className="communication-form">{selectedCustomer && <SelectedRecipient customer={selectedCustomer} />}<label className="field"><span>Template</span><select value={form.template_used} onChange={(event) => chooseTemplate(event.target.value)}>{Object.keys(templates).map((name) => <option key={name}>{name}</option>)}</select></label><label className="field"><span>Message</span><textarea rows="7" value={form.message_body} onChange={(event) => setForm({ ...form, message_body: event.target.value })} required /></label><TokenHelp /><MessagePreview message={form.message_body} customer={selectedCustomer} /><Button disabled={!selectedCustomer || sending}><IconSend size={17} />{sending ? "Sending..." : "Send WhatsApp"}</Button></form>
+          <form onSubmit={sendSingle} className="communication-form">{selectedCustomer && <SelectedRecipient customer={selectedCustomer} />}<label className="field"><span>Utility update</span><select value={form.template_used} onChange={(event) => chooseTemplate(event.target.value)}>{Object.keys(utilityUpdates).map((name) => <option key={name}>{name}</option>)}</select></label><label className="field"><span>Status update</span><textarea rows="7" value={form.message_body} onChange={(event) => setForm({ ...form, message_body: event.target.value })} required /></label><MessagePreview message={form.message_body} customer={selectedCustomer} /><Button disabled={!selectedCustomer || sending}><IconSend size={17} />{sending ? "Sending..." : "Send WhatsApp"}</Button></form>
         </Card>
       </div>}
 

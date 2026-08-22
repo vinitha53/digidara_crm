@@ -1513,8 +1513,9 @@ body { background: radial-gradient(circle at 85% 0%, rgba(201,162,74,.1), transp
 .employee-access-card dl div { display:grid; gap:3px; min-width:0; }
 .employee-access-card dt { color:var(--text2); font-size:10px; font-weight:900; text-transform:uppercase; }
 .employee-access-card dd { margin:0; font-size:12px; overflow-wrap:anywhere; }
-.employee-access-card footer { padding-top:11px; border-top:1px solid var(--border); }
-.employee-access-card footer .btn { width:100%; display:flex; align-items:center; justify-content:center; gap:7px; }
+.employee-access-card footer { padding-top:11px; border-top:1px solid var(--border); display:flex; gap:8px; }
+.employee-access-card footer .btn, .employee-access-card footer .danger-btn { flex:1; display:flex; align-items:center; justify-content:center; gap:7px; }
+.employee-access-card footer .danger-btn:disabled { opacity:.45; cursor:not-allowed; }
 .employee-create-card { border-top:2px solid var(--primary); }
 .employee-form-head { display:flex; gap:13px; align-items:center; margin-bottom:20px; }
 .employee-form-head h2 { margin:3px 0 4px; }

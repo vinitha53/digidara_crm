@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconEdit, IconEye, IconEyeOff, IconShield, IconUserCheck, IconUserOff, IconUserPlus, IconUsers } from "@tabler/icons-react";
+import { IconEdit, IconEye, IconEyeOff, IconShield, IconTrash, IconUserCheck, IconUserOff, IconUserPlus, IconUsers } from "@tabler/icons-react";
 import api from "../api/client";
 import Badge from "../components/UI/Badge.jsx";
 import Button from "../components/UI/Button.jsx";
@@ -68,6 +68,14 @@ export default function Employees() {
       .finally(() => setSaving(false));
   };
 
+  const deleteEmployee = (employee) => {
+    if (!window.confirm(`Remove CRM access for ${employee.name}? They will no longer be able to sign in.`)) return;
+    api.delete(`/employees/${employee.id}`).then(({ data }) => {
+      setToast({ type: "success", message: data?.message || "Employee access removed." });
+      return load();
+    }).catch((error) => setToast({ type: "error", message: error.response?.data?.message || "Employee could not be removed." }));
+  };
+
   const startRole = (role = null) => {
     const template = role || roleData.roles.find((item) => item.key === "staff") || roleData.roles[0];
     setRoleForm(role ? { key: role.key, label: role.label, description: role.description || "", template: role.key, permissions: structuredClone(role.permissions || {}) } : { ...emptyRole, template: template?.key || "staff", permissions: structuredClone(template?.permissions || {}) });
@@ -98,7 +106,7 @@ export default function Employees() {
 
     {createdLoginId && <div className="notice employee-login-id"><strong>Login ID created</strong><span>{createdLoginId}</span><button onClick={() => setCreatedLoginId("")}>Dismiss</button></div>}
 
-    {tab === "team" && <TeamGrid items={items} canEdit={can(user, "employees", "update")} onEdit={setEditing} />}
+    {tab === "team" && <TeamGrid items={items} canEdit={can(user, "employees", "update")} canDelete={can(user, "employees", "delete")} currentUserId={user?.id} onEdit={setEditing} onDelete={deleteEmployee} />}
     {tab === "add employee" && can(user, "employees", "create") && <Card className="employee-create-card"><div className="employee-form-head"><div className="employee-form-icon"><IconUserPlus /></div><div><span>NEW CRM USER</span><h2>Create employee access</h2><p>The employee receives a unique login ID and the permissions of the selected role.</p></div></div><EmployeeForm form={form} setForm={setForm} roles={assignableRoles} showPassword={showPassword} setShowPassword={setShowPassword} showConfirm={showConfirm} setShowConfirm={setShowConfirm} onSubmit={saveEmployee} saving={saving} /></Card>}
     {tab === "roles" && isAdministrator && <RolesWorkspace roles={roleData.roles} onCreate={() => startRole()} onConfigure={startRole} />}
 
@@ -109,8 +117,8 @@ export default function Employees() {
   </div>;
 }
 
-function TeamGrid({ items, canEdit, onEdit }) {
-  return <div className="employee-grid access-grid">{items.map((employee) => <Card className={`employee-access-card ${employee.is_active ? "" : "inactive"}`} key={employee.id}><header><div className="avatar big" style={{ background: employee.avatar_color }}>{employee.avatar_initials}</div><div><strong>{employee.name}</strong><span>{employee.login_id}</span></div><Badge tone={employee.is_active ? "teal" : "red"}>{employee.is_active ? "Active" : "Inactive"}</Badge></header><div className="employee-role-line"><IconShield size={16} /><strong>{employee.role_label}</strong><span>{employee.department || "No department"}</span></div><dl><div><dt>Email</dt><dd>{employee.email}</dd></div><div><dt>Phone</dt><dd>{employee.phone || "—"}</dd></div><div><dt>Branch</dt><dd>{employee.branch || "—"}</dd></div><div><dt>Last login</dt><dd>{employee.last_login ? new Date(employee.last_login).toLocaleDateString() : "Never"}</dd></div></dl>{canEdit && <footer><button className="btn ghost" onClick={() => onEdit({ ...employee, role: employee.role_key })}><IconEdit size={16} /> Edit access</button></footer>}</Card>)}{!items.length && <div className="empty">No CRM users have been added.</div>}</div>;
+function TeamGrid({ items, canEdit, canDelete, currentUserId, onEdit, onDelete }) {
+  return <div className="employee-grid access-grid">{items.map((employee) => <Card className={`employee-access-card ${employee.is_active ? "" : "inactive"}`} key={employee.id}><header><div className="avatar big" style={{ background: employee.avatar_color }}>{employee.avatar_initials}</div><div><strong>{employee.name}</strong><span>{employee.login_id}</span></div><Badge tone={employee.is_active ? "teal" : "red"}>{employee.is_active ? "Active" : "Inactive"}</Badge></header><div className="employee-role-line"><IconShield size={16} /><strong>{employee.role_label}</strong><span>{employee.department || "No department"}</span></div><dl><div><dt>Email</dt><dd>{employee.email}</dd></div><div><dt>Phone</dt><dd>{employee.phone || "—"}</dd></div><div><dt>Branch</dt><dd>{employee.branch || "—"}</dd></div><div><dt>Last login</dt><dd>{employee.last_login ? new Date(employee.last_login).toLocaleDateString() : "Never"}</dd></div></dl>{(canEdit || canDelete) && <footer>{canEdit && <button className="btn ghost" onClick={() => onEdit({ ...employee, role: employee.role_key })}><IconEdit size={16} /> Edit access</button>}{canDelete && <button className="danger-btn" disabled={employee.id === currentUserId} title={employee.id === currentUserId ? "You cannot remove your own access." : "Remove CRM access"} onClick={() => onDelete(employee)}><IconTrash size={16} /> Delete</button>}</footer>}</Card>)}{!items.length && <div className="empty">No CRM users have been added.</div>}</div>;
 }
 
 function EmployeeForm({ form, setForm, roles, showPassword, setShowPassword, showConfirm, setShowConfirm, onSubmit, saving }) {

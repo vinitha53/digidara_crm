@@ -25,7 +25,7 @@ export default function Sidebar({ open = false, onClose }) {
   let section = "";
   return (
     <aside id="crm-navigation" className={`sidebar ${open ? "open" : ""}`} aria-label="CRM navigation">
-      <div className="brand"><div className="logo company-logo"><img src="/assets/digidara-company-logo.png" alt="" /></div><div><strong>Digidara CRM</strong><span>Digidara Technologies Pvt Ltd</span></div><button className="icon-btn sidebar-close" type="button" onClick={onClose} aria-label="Close CRM navigation"><IconX size={19} /></button></div>
+      <div className="brand"><div className="logo company-logo"><img src={`${import.meta.env.BASE_URL}assets/digidara-company-logo.png`} alt="" /></div><div><strong>Digidara CRM</strong><span>Digidara Technologies Pvt Ltd</span></div><button className="icon-btn sidebar-close" type="button" onClick={onClose} aria-label="Close CRM navigation"><IconX size={19} /></button></div>
       <div className="sidebar-pulse"><strong>CRM Command Center</strong><span>Leads, customers, campaigns, tasks and client growth</span></div>
       <nav>{items.filter((x) => can(user, x[4])).map(([group, label, href, Icon]) => {
         const head = group !== section; section = group;

@@ -3,14 +3,14 @@ import re
 from datetime import datetime, time
 
 import pymysql
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from sqlalchemy import and_, or_, text
 from extensions import db
 from models import ActivityLog, CommunicationSummary, Customer, Lead, MessageLog, User
 from permissions import has_permission
 from services.ai_service import summarize_communication
 from services.email_service import send_email
-from services.whatsapp_service import send_whatsapp
+from services.whatsapp_service import send_whatsapp, send_whatsapp_template
 from .utils import current_user, permission_required
 
 bp = Blueprint("communication", __name__, url_prefix="/api/communication")
@@ -213,11 +213,17 @@ def quick_send():
     body = personalize_message((data.get("message_body") or "").strip(), person)
     if not body:
         return jsonify({"message": "Message body is required"}), 400
+    template_used = data.get("template_used")
     if channel == "Email":
         result = send_email(person.email, "Message from Digidara Technologies", body)
+    elif rtype == "customer":
+        template_used = current_app.config.get("WHATSAPP_COMMUNICATION_TEMPLATE_NAME")
+        language = current_app.config.get("WHATSAPP_TEMPLATE_LANGUAGE", "en")
+        service = getattr(person, "service", None) or "your existing service request"
+        result = send_whatsapp_template(person.phone, template_used, language, [person.name, service, body])
     else:
         result = send_whatsapp(person.phone, body)
-    log = MessageLog(recipient_type=rtype, recipient_id=rid, recipient_name=person.name, channel=channel, message_body=body, template_used=data.get("template_used"), status=message_status(result))
+    log = MessageLog(recipient_type=rtype, recipient_id=rid, recipient_name=person.name, channel=channel, message_body=body, template_used=template_used, status=message_status(result))
     db.session.add(log)
     db.session.commit()
     return jsonify(log.to_dict()), 201

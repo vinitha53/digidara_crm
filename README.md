@@ -99,10 +99,26 @@ After password validation, login sends a WhatsApp OTP to the staff member's phon
 ```env
 WHATSAPP_LOGIN_OTP_TEMPLATE_NAME=staff_login_otp
 WHATSAPP_LOGIN_OTP_URL_BUTTON_ENABLED=1
+WHATSAPP_COMMUNICATION_TEMPLATE_NAME=customer_communication_message
 LOGIN_OTP_TTL_SECONDS=300
 LOGIN_OTP_RESEND_SECONDS=60
 LOGIN_OTP_MAX_ATTEMPTS=5
 CRM_AGENCY_ID=2
+```
+
+Create a Utility Meta WhatsApp template named by
+`WHATSAPP_COMMUNICATION_TEMPLATE_NAME` with language `en` and this body. The CRM
+supplies the customer name, existing service, and transactional status update as
+parameters `{{1}}`, `{{2}}`, and `{{3}}`:
+
+```text
+Hi {{1}},
+
+This is an update regarding your existing service request for {{2}}.
+
+Status update: {{3}}
+
+Reply if you need clarification about this request.
 ```
 
 ## Environment

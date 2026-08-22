@@ -1,8 +1,19 @@
+import re
+
 import requests
 from flask import current_app
 from extensions import db
 from models import CompanySettings
 from services.integration_service import integration_config
+
+
+def whatsapp_recipient(value):
+    digits = re.sub(r"\D+", "", str(value or ""))
+    if digits.startswith("00"):
+        digits = digits[2:]
+    if len(digits) == 10:
+        digits = f"91{digits}"
+    return digits
 
 
 def whatsapp_credentials():
@@ -28,10 +39,11 @@ def send_whatsapp(to, body):
     token, phone_number_id, api_url = whatsapp_credentials()
     if not token or not phone_number_id:
         return {"ok": False, "skipped": True, "error": "WhatsApp Phone Number ID and API token are required in Settings > Integrations."}
-    if not to:
+    recipient = whatsapp_recipient(to)
+    if not recipient:
         return {"ok": False, "skipped": True, "error": "Recipient phone number is required."}
     url = f"{api_url}/{phone_number_id}/messages"
-    payload = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": body}}
+    payload = {"messaging_product": "whatsapp", "to": recipient, "type": "text", "text": {"body": body}}
     try:
         res = requests.post(url, json=payload, headers={"Authorization": f"Bearer {token}"}, timeout=15)
         return {"ok": res.ok, "status_code": res.status_code, "data": res.json() if res.content else {}}
@@ -43,14 +55,15 @@ def send_whatsapp_template(to, template_name, language_code, body_params=None, u
     token, phone_number_id, api_url = whatsapp_credentials()
     if not token or not phone_number_id:
         return {"ok": False, "skipped": True, "error": "WhatsApp Phone Number ID and API token are required in Settings > Integrations."}
-    if not to:
+    recipient = whatsapp_recipient(to)
+    if not recipient:
         return {"ok": False, "skipped": True, "error": "Recipient phone number is required."}
     if not template_name:
         return {"ok": False, "skipped": True, "error": "WhatsApp template name is required."}
 
     payload = {
         "messaging_product": "whatsapp",
-        "to": to,
+        "to": recipient,
         "type": "template",
         "template": {
             "name": template_name,

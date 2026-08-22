@@ -29,6 +29,11 @@ def scoped():
     return q if has_permission(user, "leads", "assign") else q.filter(Lead.assigned_to == user.id)
 
 
+def newest_first(query):
+    """Keep lead collections in stable, newest-created-first order."""
+    return query.order_by(Lead.created_at.desc(), Lead.id.desc())
+
+
 def normalize_lead(lead):
     category = lead.lead_category or "course"
     lead.source = lead.source if lead.source in SOURCES else "website"
@@ -175,8 +180,7 @@ def list_leads():
         q = q.filter((Lead.name.ilike(like)) | (Lead.email.ilike(like)) | (Lead.phone.ilike(like)))
     page = max(int(request.args.get("page", 1)), 1)
     per_page = min(max(int(request.args.get("per_page", 20)), 1), 200)
-    latest_activity = func.coalesce(Lead.updated_at, Lead.created_at)
-    items = q.order_by(latest_activity.desc(), Lead.id.desc()).paginate(
+    items = newest_first(q).paginate(
         page=page,
         per_page=per_page,
         error_out=False,
@@ -206,8 +210,7 @@ def leads_overview():
 @bp.get("/export")
 @permission_required("leads", "view")
 def export_leads():
-    latest_activity = func.coalesce(Lead.updated_at, Lead.created_at)
-    rows = scoped().order_by(latest_activity.desc(), Lead.id.desc()).all()
+    rows = newest_first(scoped()).all()
     output = io.StringIO()
     fields = ["id", "name", "phone", "email", "company", "service", "lead_category", "source", "tag", "status", "assigned_to", "city", "created_at"]
     writer = csv.DictWriter(output, fieldnames=fields)
@@ -398,4 +401,4 @@ def score_all():
 @permission_required("leads", "view")
 def pipeline():
     statuses = ["new", "contacted", "qualified", "won", "lost"]
-    return jsonify({s: [x.to_dict() for x in scoped().filter_by(status=s).all()] for s in statuses})
+    return jsonify({s: [x.to_dict() for x in newest_first(scoped().filter_by(status=s)).all()] for s in statuses})
