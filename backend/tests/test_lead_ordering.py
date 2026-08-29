@@ -1,5 +1,3 @@
-import csv
-import io
 import os
 import unittest
 from datetime import datetime, timedelta
@@ -67,13 +65,9 @@ class LeadOrderingTestCase(unittest.TestCase):
             ["Newer lead", "Older lead"],
         )
 
-    def test_export_and_pipeline_use_the_same_newest_first_order(self):
-        export_response = self.client.get("/api/leads/export", headers=self.headers)
-        export_rows = list(csv.DictReader(io.StringIO(export_response.get_data(as_text=True))))
+    def test_pipeline_uses_newest_first_order(self):
         pipeline_response = self.client.get("/api/leads/pipeline", headers=self.headers)
 
-        self.assertEqual(export_response.status_code, 200)
-        self.assertEqual([row["name"] for row in export_rows], ["Newer lead", "Older lead"])
         self.assertEqual(pipeline_response.status_code, 200)
         self.assertEqual(
             [lead["name"] for lead in pipeline_response.get_json()["new"]],

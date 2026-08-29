@@ -1,14 +1,14 @@
-import csv
-import io
 from datetime import datetime
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 from extensions import db
-from models import ActivityLog, Customer, Lead, MessageLog, Task
+from models import ActivityLog, Customer, Lead, MessageLog, Task, User
 from permissions import has_permission
-from services.ai_service import classify_lead
 from services.email_service import send_email
 from services.lead_acknowledgement_service import send_customer_conversion_welcome, send_lead_acknowledgement
+from services.lead_assignment_service import send_lead_assignment_notification
+from services.lead_scoring_service import lead_scoring_signature, rescore_if_changed, score_and_apply_lead
+from services.lost_reason_service import canonical_lost_reason, validate_lost_reason
 from services.whatsapp_service import send_whatsapp
 from services.workflow_service import run_lead_workflows
 from .utils import current_user, log_activity, permission_required, parse_date, update_model
@@ -18,7 +18,7 @@ ALLOWED = [
     "name", "phone", "email", "company", "service", "lead_category", "qualification",
     "program_duration", "course_name", "internship_name", "business_name",
     "business_requirement", "source", "tag", "status", "deal_value", "probability",
-    "expected_close_date", "lost_reason", "assigned_to", "notes", "city"
+    "expected_close_date", "lost_reason", "lost_reason_detail", "assigned_to", "notes", "city"
 ]
 SOURCES = {"website", "chatbot", "whatsapp", "email", "inperson"}
 
@@ -26,7 +26,7 @@ SOURCES = {"website", "chatbot", "whatsapp", "email", "inperson"}
 def scoped():
     user = current_user()
     q = Lead.query
-    return q if has_permission(user, "leads", "assign") else q.filter(Lead.assigned_to == user.id)
+    return q if user.role == "admin" else q.filter(Lead.assigned_to == user.id)
 
 
 def newest_first(query):
@@ -48,10 +48,14 @@ def normalize_lead(lead):
     if lead.status == "won":
         lead.probability = 100
         lead.lost_reason = None
-    elif lead.status == "lost" and not lead.lost_reason:
-        lead.lost_reason = "Not specified"
+        lead.lost_reason_detail = None
+    elif lead.status == "lost":
+        lead.lost_reason, lead.lost_reason_detail = validate_lost_reason(
+            lead.status, lead.lost_reason, lead.lost_reason_detail,
+        )
     elif lead.status != "lost":
         lead.lost_reason = None
+        lead.lost_reason_detail = None
     if category == "course":
         lead.service = lead.course_name or lead.service or "Course Enquiry"
         lead.program_duration = None
@@ -79,6 +83,18 @@ def message_status(result):
     if result.get("skipped"):
         return "skipped"
     return "failed"
+
+
+def assignable_staff(assigned_to):
+    try:
+        user_id = int(assigned_to)
+    except (TypeError, ValueError):
+        return None
+    return User.query.filter(
+        User.id == user_id,
+        User.is_active == 1,
+        User.role != "admin",
+    ).first()
 
 
 def customer_message(lead):
@@ -124,25 +140,7 @@ def convert_won_lead_to_customer(lead):
 
 
 def score_lead(lead):
-    messages = MessageLog.query.filter_by(recipient_type="lead", recipient_id=lead.id).all() if lead.id else []
-    open_tasks = Task.query.filter(
-        (Task.related_type == "lead") &
-        ((Task.related_id == lead.id) | (Task.related_name == lead.name)) &
-        (Task.status != "done")
-    ).count() if lead.id else 0
-    result = classify_lead(
-        lead,
-        message_count=len(messages),
-        successful_messages=len([m for m in messages if m.status == "sent"]),
-        open_tasks=open_tasks,
-    )
-    lead.tag = result["tag"]
-    lead.ai_score = result["score"]
-    lead.ai_reason = result["reason"]
-    lead.ai_score_factors = result.get("factors")
-    lead.ai_next_best_action = result.get("next_best_action")
-    lead.ai_scored_at = datetime.utcnow()
-    return result
+    return score_and_apply_lead(lead)
 
 
 @bp.get("/")
@@ -164,8 +162,12 @@ def list_leads():
     if request.args.get("service"):
         q = q.filter(Lead.service.ilike(f"%{request.args['service']}%"))
     if request.args.get("lost_reason"):
-        reason = func.coalesce(func.nullif(func.trim(Lead.lost_reason), ""), "Not specified")
-        q = q.filter(reason == request.args["lost_reason"])
+        raw_reason = request.args["lost_reason"].strip()
+        if raw_reason.lower() == "not specified":
+            q = q.filter((Lead.lost_reason.is_(None)) | (func.trim(Lead.lost_reason) == ""))
+        else:
+            requested_reason = canonical_lost_reason(raw_reason)
+            q = q.filter(Lead.lost_reason == requested_reason)
     if request.args.get("min_value"):
         q = q.filter(Lead.deal_value >= int(request.args["min_value"]))
     if request.args.get("max_value"):
@@ -207,59 +209,19 @@ def leads_overview():
     })
 
 
-@bp.get("/export")
-@permission_required("leads", "view")
-def export_leads():
-    rows = newest_first(scoped()).all()
-    output = io.StringIO()
-    fields = ["id", "name", "phone", "email", "company", "service", "lead_category", "source", "tag", "status", "assigned_to", "city", "created_at"]
-    writer = csv.DictWriter(output, fieldnames=fields)
-    writer.writeheader()
-    for lead in rows:
-        data = lead.to_dict()
-        writer.writerow({field: data.get(field) for field in fields})
-    return Response(output.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=leads.csv"})
-
-
-@bp.post("/import")
-@permission_required("leads", "create")
-def import_leads():
-    data = request.get_json() or {}
-    text = data.get("csv") or ""
-    if not text.strip():
-        return jsonify({"message": "CSV content is required"}), 400
-    reader = csv.DictReader(io.StringIO(text))
-    created, skipped = 0, []
-    for index, row in enumerate(reader, start=2):
-        phone = (row.get("phone") or "").strip()
-        email = (row.get("email") or "").strip()
-        if not row.get("name") or not phone:
-            skipped.append({"row": index, "reason": "name and phone are required"})
-            continue
-        duplicate = Lead.query.filter((Lead.phone == phone) | ((Lead.email == email) if email else (Lead.id == 0))).first()
-        if duplicate:
-            skipped.append({"row": index, "reason": "duplicate phone or email"})
-            continue
-        lead = Lead(
-            name=row["name"].strip(),
-            phone=phone,
-            email=email or None,
-            company=row.get("company") or None,
-            service=row.get("service") or row.get("course_name") or "Imported Lead",
-            lead_category=row.get("lead_category") or "course",
-            source=row.get("source") or "website",
-            tag=row.get("tag") or "new",
-            status=row.get("status") or "new",
-            city=row.get("city") or None,
-            assigned_to=current_user().id,
-            notes=row.get("notes") or None,
-        )
-        normalize_lead(lead)
-        db.session.add(lead)
-        created += 1
-    log_activity(current_user().id, "leads_imported", "lead", None, f"{created} leads imported")
-    db.session.commit()
-    return jsonify({"created": created, "skipped": skipped})
+@bp.get("/assignees")
+@permission_required("leads", "assign")
+def assignees():
+    rows = User.query.filter(
+        User.is_active == 1,
+        User.role != "admin",
+    ).order_by(User.name.asc()).all()
+    return jsonify([{
+        "id": user.id,
+        "name": user.name,
+        "role": user.role,
+        "department": user.department,
+    } for user in rows])
 
 
 @bp.get("/duplicates")
@@ -286,17 +248,38 @@ def bulk_update():
     action = data.get("action")
     if not ids or action not in {"status", "tag", "assign", "delete"}:
         return jsonify({"message": "Valid ids and action are required"}), 400
+    assignee = None
+    lost_reason = None
+    lost_reason_detail = None
+    if action == "assign":
+        if not has_permission(current_user(), "leads", "assign"):
+            return jsonify({"message": "Lead assignment permission required"}), 403
+        assignee = assignable_staff(data.get("value"))
+        if not assignee:
+            return jsonify({"message": "Select an active staff member"}), 400
+    if action == "status" and data.get("value") == "lost":
+        try:
+            lost_reason, lost_reason_detail = validate_lost_reason(
+                "lost", data.get("lost_reason"), data.get("lost_reason_detail"),
+            )
+        except ValueError as exc:
+            return jsonify({"message": str(exc)}), 400
     q = scoped().filter(Lead.id.in_(ids))
     rows = q.all()
     for lead in rows:
         if action == "status":
             lead.status = data.get("value") or lead.status
+            if lead.status == "lost":
+                lead.lost_reason = lost_reason
+                lead.lost_reason_detail = lost_reason_detail
             normalize_lead(lead)
             convert_won_lead_to_customer(lead)
         elif action == "tag":
             lead.tag = data.get("value") or lead.tag
-        elif action == "assign" and has_permission(current_user(), "leads", "assign"):
-            lead.assigned_to = int(data.get("value"))
+        elif action == "assign":
+            if lead.assigned_to != assignee.id:
+                lead.assigned_to = assignee.id
+                send_lead_assignment_notification(lead, assignee)
         elif action == "delete" and has_permission(current_user(), "leads", "delete"):
             db.session.delete(lead)
     log_activity(current_user().id, "leads_bulk_updated", "lead", None, f"{len(rows)} leads affected")
@@ -308,14 +291,29 @@ def bulk_update():
 @permission_required("leads", "create")
 def create_lead():
     data = request.get_json() or {}
+    try:
+        data["lost_reason"], data["lost_reason_detail"] = validate_lost_reason(
+            data.get("status") or "new", data.get("lost_reason"), data.get("lost_reason_detail"),
+        )
+    except ValueError as exc:
+        return jsonify({"message": str(exc)}), 400
+    actor = current_user()
+    if has_permission(actor, "leads", "assign"):
+        assigned_staff = assignable_staff(data.get("assigned_to"))
+        if not assigned_staff:
+            return jsonify({"message": "Assigned Staff is required. Select an active staff member."}), 400
+        data["assigned_to"] = assigned_staff.id
+    else:
+        assigned_staff = actor
+        data["assigned_to"] = actor.id
     lead = normalize_lead(update_model(Lead(), data, ALLOWED))
     if "expected_close_date" in data:
         lead.expected_close_date = parse_date(data["expected_close_date"]) if data.get("expected_close_date") else None
-    if not lead.assigned_to:
-        lead.assigned_to = current_user().id
     db.session.add(lead)
     db.session.flush()
+    score_and_apply_lead(lead)
     send_lead_acknowledgement(lead)
+    send_lead_assignment_notification(lead, assigned_staff)
     convert_won_lead_to_customer(lead)
     log_activity(current_user().id, "lead_created", "lead", lead.id, lead.name)
     db.session.commit()
@@ -349,13 +347,39 @@ def timeline(id):
 @permission_required("leads", "update")
 def update(id):
     lead = scoped().filter_by(id=id).first_or_404()
+    previous_scoring_signature = lead_scoring_signature(lead)
     data = request.get_json() or {}
+    try:
+        data["lost_reason"], data["lost_reason_detail"] = validate_lost_reason(
+            data.get("status", lead.status),
+            data.get("lost_reason", lead.lost_reason),
+            data.get("lost_reason_detail", lead.lost_reason_detail),
+        )
+    except ValueError as exc:
+        return jsonify({"message": str(exc)}), 400
+    actor = current_user()
+    previous_assignee_id = lead.assigned_to
+    new_assignee = None
+    if "assigned_to" in data:
+        if not has_permission(actor, "leads", "assign"):
+            if str(data.get("assigned_to") or "") != str(lead.assigned_to or actor.id):
+                return jsonify({"message": "Lead assignment permission required"}), 403
+            data["assigned_to"] = lead.assigned_to or actor.id
+        else:
+            assignee = assignable_staff(data.get("assigned_to"))
+            if not assignee:
+                return jsonify({"message": "Assigned Staff is required. Select an active staff member."}), 400
+            data["assigned_to"] = assignee.id
+            new_assignee = assignee
     if data.get("status") == "won" and lead.status != "won" and not has_permission(current_user(), "leads", "convert"):
         return jsonify({"message": "Lead conversion permission required"}), 403
     old_status = lead.status
     normalize_lead(update_model(lead, data, ALLOWED))
+    if new_assignee and previous_assignee_id != lead.assigned_to:
+        send_lead_assignment_notification(lead, new_assignee)
     if "expected_close_date" in data:
         lead.expected_close_date = parse_date(data["expected_close_date"]) if data.get("expected_close_date") else None
+    rescore_if_changed(lead, previous_scoring_signature)
     if old_status != "won" and lead.status == "won":
         convert_won_lead_to_customer(lead)
     elif lead.status == "won":

@@ -25,6 +25,7 @@ class Lead(db.Model):
     probability = db.Column(db.Integer, default=10)
     expected_close_date = db.Column(db.Date)
     lost_reason = db.Column(db.Text)
+    lost_reason_detail = db.Column(db.Text)
     assigned_to = db.Column(db.Integer, db.ForeignKey("users.id"))
     notes = db.Column(db.Text)
     ai_score = db.Column(db.Integer)

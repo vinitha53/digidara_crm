@@ -30,9 +30,9 @@ Recommended screen sizes:
 
 Local URLs:
 
-- Backend: `http://localhost:5000`
+- Backend: `http://localhost:5002`
 - Frontend: `http://localhost:5173`
-- Health check: `http://localhost:5000/api/health`
+- Health check: `http://localhost:5002/api/health`
 
 Database:
 
@@ -55,7 +55,7 @@ python app.py
 Expected backend URL:
 
 ```text
-http://localhost:5000
+http://localhost:5002
 ```
 
 Health check expected response:
@@ -170,12 +170,12 @@ Run these first after every deployment or major change.
 | LEAD-08 | Pipeline update | Move/update lead stage | Stage persists |
 | LEAD-09 | Won conversion | Move lead to won as permitted user | Conversion succeeds and customer behavior is correct |
 | LEAD-10 | Lost reason | Mark lead as lost with reason | Lost reason appears in reports/filtering |
-| LEAD-11 | CSV import | Import valid CSV | Valid rows are created |
-| LEAD-12 | Invalid CSV | Import malformed CSV | Clear validation error; no crash |
+| LEAD-11 | Connected-source sync | Sync configured WhatsApp, website and chatbot sources | New source records appear as leads |
+| LEAD-12 | Signed intake validation | Send a missing or invalid integration signature | Request is rejected; no lead is created |
 | LEAD-13 | Duplicate detection | Create/import duplicate phone/email | Duplicate view identifies possible duplicate |
 | LEAD-14 | Bulk action | Select multiple leads and apply action | Only selected visible records update |
-| LEAD-15 | Export | Export leads CSV | CSV downloads and contains filtered records |
-| LEAD-16 | AI classify | Run classify on a lead | Tag, score/reason or fallback output updates |
+| LEAD-15 | Source retry | Submit the same source system and external ID twice | One lead is updated without duplication |
+| LEAD-16 | Automatic AI classify | Create or update a lead with meaningful notes | Hot/warm/cold type, score and reason are stored automatically |
 | LEAD-17 | Timeline | Open lead timeline | Activity/messages appear in chronological context |
 
 ## 9. Customers Module Tests

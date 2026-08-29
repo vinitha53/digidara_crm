@@ -45,7 +45,7 @@ export default function Reports() {
 
   return <div className="page reports-page">
     <section className="report-owner-intro">
-      <div><span>BUSINESS OPERATING REPORT</span><h2>Growth quality and execution health</h2><p>Understand which business lines and sources convert, why enquiries are lost, and where the team needs intervention—without revenue noise.</p></div>
+      <div><span>Business operating report</span><h2>Growth quality and execution health</h2><p>Understand which business lines and sources convert, why enquiries are lost and where the team needs intervention—without revenue noise.</p></div>
       <button className="btn primary report-export" disabled={exporting} onClick={download}><IconDownload size={18} /> {exporting ? "Preparing..." : "Export this view"}</button>
     </section>
 
@@ -66,31 +66,31 @@ export default function Reports() {
 
     <OwnerActions actions={data.actions} />
 
-    <div className="report-section-heading"><div><span>PERFORMANCE</span><h2>Demand and conversion movement</h2></div><p>Wins and losses use the current outcome of leads created in the selected period.</p></div>
+    <div className="report-section-heading"><div><span>Performance</span><h2>Demand and conversion movement</h2></div><p>Wins and losses use the current outcome of leads created in the selected period.</p></div>
     <div className="report-chart-grid">
       <Card className="report-chart-card"><h3>Lead movement</h3><p>Monthly acquisition with the wins and losses recorded in each month.</p><ResponsiveContainer width="100%" height={300}><LineChart data={data.trend} margin={{ top: 10, right: 12, left: -18, bottom: 2 }}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} /><XAxis dataKey="name" tick={{ fill: "var(--text2)", fontSize: 11 }} tickLine={false} axisLine={{ stroke: "var(--border)" }} /><YAxis allowDecimals={false} tick={{ fill: "var(--text2)", fontSize: 11 }} tickLine={false} axisLine={false} /><Tooltip contentStyle={tooltipStyle} /><Legend wrapperStyle={{ fontSize: 12 }} /><Line type="monotone" dataKey="leads" name="Leads added" stroke="var(--primary)" strokeWidth={3} /><Line type="monotone" dataKey="won" name="Won" stroke="var(--teal)" strokeWidth={3} /><Line type="monotone" dataKey="lost" name="Lost" stroke="var(--red)" strokeWidth={3} /></LineChart></ResponsiveContainer></Card>
       <Card className="report-chart-card"><h3>Business-line performance</h3><p>Compare course, internship and client-project outcomes.</p><ResponsiveContainer width="100%" height={300}><BarChart data={data.categories} margin={{ top: 10, right: 8, left: -18, bottom: 2 }}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} /><XAxis dataKey="name" tick={{ fill: "var(--text2)", fontSize: 11 }} tickLine={false} axisLine={{ stroke: "var(--border)" }} /><YAxis allowDecimals={false} tick={{ fill: "var(--text2)", fontSize: 11 }} tickLine={false} axisLine={false} /><Tooltip contentStyle={tooltipStyle} /><Legend wrapperStyle={{ fontSize: 12 }} /><Bar dataKey="leads" name="Leads" fill="var(--primary)" radius={[5, 5, 0, 0]} /><Bar dataKey="won" name="Won" fill="var(--teal)" radius={[5, 5, 0, 0]} /><Bar dataKey="lost" name="Lost" fill="var(--red)" radius={[5, 5, 0, 0]} /></BarChart></ResponsiveContainer></Card>
     </div>
     <BusinessLineCards rows={data.categories} />
 
-    <div className="report-section-heading"><div><span>SALES CONVERSION</span><h2>How the team converts assigned leads</h2></div><p>Compare salesperson outcomes, conversion speed and follow-up discipline—not activity volume alone.</p></div>
+    <div className="report-section-heading"><div><span>Sales conversion</span><h2>How the team converts assigned leads</h2></div><p>Compare salesperson outcomes, conversion speed and follow-up discipline—not activity volume alone.</p></div>
     <ConversionIntelligence insights={data.conversion_insights} />
     <PipelineReport rows={data.pipeline} />
 
-    <div className="report-section-heading"><div><span>ACQUISITION & LOSS</span><h2>Where quality comes from and where it breaks</h2></div><p>Use conversion—not volume alone—to evaluate lead sources.</p></div>
+    <div className="report-section-heading"><div><span>Acquisition and loss</span><h2>Where quality comes from and where it breaks</h2></div><p>Use conversion—not volume alone—to evaluate lead sources.</p></div>
     <div className="report-insight-grid"><SourceQuality rows={data.sources} /><LossReasons rows={data.loss_reasons} /></div>
 
-    <div className="report-section-heading"><div><span>CURRENT HEALTH</span><h2>Lead aging and customer contact</h2></div><p>These are live operating risks and are not limited by the selected reporting cohort.</p></div>
-    <div className="report-health-grid"><Card><div className="report-card-head"><div><h3>Open lead aging</h3><p>Older open enquiries require recovery or a clear outcome.</p></div><strong>{data.summary.stale || 0} stale</strong></div><div className="aging-grid">{data.aging.map((row) => <Link to="/leads?stage=open" key={row.id}><span>{row.name}</span><strong>{row.value}</strong></Link>)}</div></Card><Card className="customer-health-card"><div><span>CUSTOMER RELATIONSHIP RISK</span><strong>{data.summary.customer_contact_overdue || 0}</strong><p>active or follow-up customers have not been contacted for at least seven days.</p></div><Link className="btn" to="/customers?attention=contact_overdue">Review customers</Link></Card></div>
+    <div className="report-section-heading"><div><span>Current health</span><h2>Lead aging and customer contact</h2></div><p>These are live operating risks and are not limited by the selected reporting cohort.</p></div>
+    <div className="report-health-grid"><Card><div className="report-card-head"><div><h3>Open lead aging</h3><p>Older open enquiries require recovery or a clear outcome.</p></div><strong>{data.summary.stale || 0} stale</strong></div><div className="aging-grid">{data.aging.map((row) => <Link to="/leads?stage=open" key={row.id}><span>{row.name}</span><strong>{row.value}</strong></Link>)}</div></Card><Card className="customer-health-card"><div><span>Customer relationship risk</span><strong>{data.summary.customer_contact_overdue || 0}</strong><p>Active customers and customers requiring follow-up have not been contacted for at least seven days.</p></div><Link className="btn" to="/customers?attention=contact_overdue">Review customers</Link></Card></div>
 
-    <div className="report-section-heading"><div><span>SALESPERSON DETAIL</span><h2>Conversion and follow-up accountability</h2></div><p>Creation-to-win days are estimates based on the lead’s last outcome update.</p></div>
+    <div className="report-section-heading"><div><span>Salesperson details</span><h2>Conversion and follow-up accountability</h2></div><p>Creation-to-win days are estimates based on the lead’s last outcome update.</p></div>
     <TeamAccountability rows={data.employees} />
     <footer className="report-generated">Generated from live CRM records {formatGenerated(data.generated_at)} · {data.period.label}</footer>
   </div>;
 }
 
 function OwnerActions({ actions = [] }) {
-  return <Card className="owner-action-report"><div className="report-card-head"><div><span>PRIORITY ATTENTION</span><h2>Decisions that need action now</h2></div><IconAlertTriangle size={24} /></div><div className="owner-action-list">{actions.map((action) => <Link className={`owner-action-item ${action.priority}`} to={action.to} key={action.id}><i /><div><strong>{action.title}</strong><span>{action.detail}</span></div><b>Review</b></Link>)}</div></Card>;
+  return <Card className="owner-action-report"><div className="report-card-head"><div><span>Priority attention</span><h2>Decisions that need action now</h2></div><IconAlertTriangle size={24} /></div><div className="owner-action-list">{actions.map((action) => <Link className={`owner-action-item ${action.priority}`} to={action.to} key={action.id}><i /><div><strong>{action.title}</strong><span>{action.detail}</span></div><b>Review</b></Link>)}</div></Card>;
 }
 
 function BusinessLineCards({ rows = [] }) {
@@ -120,7 +120,7 @@ function SourceQuality({ rows = [] }) {
 }
 
 function LossReasons({ rows = [] }) {
-  return <Card><div className="report-card-head"><div><h3>Loss reason intelligence</h3><p>Fix the objections and process gaps with the highest share.</p></div><IconChartBar size={23} /></div><div className="report-loss-list">{rows.map((row) => <Link to={`/leads?status=lost&lost_reason=${encodeURIComponent(row.name)}`} key={row.id}><div><strong>{row.name}</strong><span>{row.count} lost lead{row.count === 1 ? "" : "s"}</span></div><b>{row.share}%</b><div><i style={{ width: `${Math.min(row.share, 100)}%` }} /></div></Link>)}{!rows.length && <div className="empty compact-empty">No leads were lost in this period.</div>}</div></Card>;
+  return <Card><div className="report-card-head"><div><h3>Loss reason intelligence</h3><p>Fix the objections and process gaps with the highest share.</p></div><IconChartBar size={23} /></div><div className="report-loss-list">{rows.map((row) => <Link to={`/leads?status=lost&lost_reason=${encodeURIComponent(row.key || row.name)}`} key={row.id}><div><strong>{row.name}</strong><span>{row.count} lost lead{row.count === 1 ? "" : "s"}</span></div><b>{row.share}%</b><div><i style={{ width: `${Math.min(row.share, 100)}%` }} /></div></Link>)}{!rows.length && <div className="empty compact-empty">No leads were lost in this period.</div>}</div></Card>;
 }
 
 function TeamAccountability({ rows = [] }) {

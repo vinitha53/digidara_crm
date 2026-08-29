@@ -37,7 +37,7 @@ Database:
 
 Supported local URLs:
 
-- Backend API: `http://localhost:5000`
+- Backend API: `http://localhost:5002`
 - Frontend app: `http://localhost:5173`
 
 ## 3. User Roles And Access
@@ -124,11 +124,11 @@ The Leads module must support:
 - Filters for status, source, city and interest.
 - Paginated desktop table and responsive mobile cards.
 - Bulk actions.
-- CSV import.
+- Signed automatic intake from WhatsApp, website forms and chatbots.
 - Duplicate detection.
-- CSV export.
+- Source-system and external-ID deduplication.
 - Lead timeline from CRM activity and communication logs.
-- AI classification and scoring.
+- Automatic AI classification and scoring from notes and CRM context on create or meaningful update.
 - Pipeline view.
 
 Conversion behavior:
@@ -365,4 +365,3 @@ The product is ready for testing handoff when:
 - Reports, dashboard and search show permission-scoped data.
 - Responsive layouts work on desktop, tablet and mobile widths.
 - Build command completes successfully.
-

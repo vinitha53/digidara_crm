@@ -87,7 +87,7 @@ export default function Tasks() {
   ];
 
   return <div className="page tasks-page">
-    <div className="task-page-head"><div><span>TEAM EXECUTION</span><h2>{isManager ? "Assign and track work" : "My assigned work"}</h2><p>{isManager ? "Keep assignments, due dates and next actions clear." : "Focus on what is due, complete work, and keep your manager informed."}</p></div>{can(user, "tasks", "create") && <Button onClick={startNew}><IconPlus size={17} />New task</Button>}</div>
+    <div className="task-page-head"><div><span>Team execution</span><h2>{isManager ? "Assign and track work" : "My assigned work"}</h2><p>{isManager ? "Keep assignments, due dates and next actions clear." : "Focus on what is due, complete the work and keep your manager informed."}</p></div>{can(user, "tasks", "create") && <Button onClick={startNew}><IconPlus size={17} />New task</Button>}</div>
 
     <div className="task-summary focused">
       <button className={filter === "mine" ? "active" : ""} onClick={() => setFilter("mine")}><span>My open tasks</span><strong>{metrics.myOpen}</strong></button>
@@ -106,7 +106,7 @@ export default function Tasks() {
         <label className="field"><span>Related to</span><select value={form.related_type} onChange={(event) => set("related_type", event.target.value)}><option value="internal">Internal work</option><option value="lead">Lead</option><option value="customer">Customer</option></select></label>
         {form.related_type !== "internal" && <label className="field"><span>{form.related_type === "lead" ? "Lead" : "Customer"} name</span><input value={form.related_name} onChange={(event) => set("related_name", event.target.value)} required /></label>}
         <label className="field"><span>Reminder (optional)</span><input type="datetime-local" value={form.reminder_at} onChange={(event) => set("reminder_at", event.target.value)} /></label>
-        <label className="field wide"><span>Instruction / expected result</span><textarea value={form.notes} onChange={(event) => set("notes", event.target.value)} placeholder="Add the context the employee needs to finish this correctly." /></label>
+        <label className="field wide"><span>Instructions and expected result</span><textarea value={form.notes} onChange={(event) => set("notes", event.target.value)} placeholder="Add the context the employee needs to complete this task correctly." /></label>
         <div className="composer-actions wide"><button type="button" className="ghost-action" onClick={resetForm}>Cancel</button><Button>{editing ? "Save changes" : isManager ? "Assign task" : "Add task"}</Button></div>
       </form>
     </Card>}

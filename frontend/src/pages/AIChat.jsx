@@ -154,7 +154,7 @@ export default function AIChat() {
       <section className="ai-chat-scroll">
         {!activeId && !messages.length && <div className="ai-chat-welcome">
           <div className="ai-welcome-orb"><IconSparkles size={28} /></div>
-          <span>CRM DATA ANALYST</span>
+          <span>CRM data analyst</span>
           <h1>What can I help you understand?</h1>
           <p>Ask questions about your live leads, customers, tasks and operations. Your answers remain saved in chat history.</p>
           <div className="ai-starter-grid">{suggestions.map((text) => <button type="button" key={text} disabled={asking} onClick={() => ask(null, text)}>{text}<IconArrowUp size={16} /></button>)}</div>

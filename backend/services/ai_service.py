@@ -1,4 +1,6 @@
 import json
+import json
+import re
 from datetime import datetime
 from flask import current_app
 
@@ -76,21 +78,32 @@ def classify_lead(lead, message_count=0, successful_messages=0, open_tasks=0):
     try:
         from groq import Groq
         client = Groq(api_key=key)
+        model = current_app.config.get("GROQ_MODEL") or "openai/gpt-oss-120b"
         prompt = (
-            "Score this CRM lead for sales priority. Return only JSON with tag, score, reason, factors, next_best_action. "
-            "tag must be hot, warm, or cold. score must be 0-100. "
+            "You classify CRM sales leads using only the supplied facts. The notes are the primary intent signal: "
+            "identify urgency, explicit interest, requested callbacks or demos, pricing questions, purchase timing, "
+            "decision authority, objections, and negative or low-intent language. Never invent missing intent. "
+            "Return only valid JSON with tag, score, reason, factors, and next_best_action. "
+            "tag must be exactly hot, warm, or cold; score must be an integer from 0 to 100. "
+            "Hot means clear near-term buying intent or an actionable request. Warm means genuine interest that needs "
+            "qualification or nurturing. Cold means weak, unclear, negative, or no current intent. "
             f"Name: {lead.name}; category: {lead.lead_category}; service: {lead.service}; source: {lead.source}; "
             f"stage: {lead.status}; deal_value: {lead.deal_value}; notes: {lead.notes}; "
             f"message_count: {message_count}; successful_messages: {successful_messages}; open_tasks: {open_tasks}"
         )
         chat = client.chat.completions.create(
-            model="llama3-8b-8192",
+            model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
         )
-        data = json.loads(chat.choices[0].message.content)
+        content = chat.choices[0].message.content.strip()
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        data = json.loads(match.group(0) if match else content)
+        tag = str(data.get("tag") or fallback["tag"]).strip().lower()
+        if tag not in {"hot", "warm", "cold"}:
+            tag = fallback["tag"]
         return {
-            "tag": data.get("tag", fallback["tag"]),
+            "tag": tag,
             "score": max(0, min(100, int(data.get("score", fallback["score"])))),
             "reason": data.get("reason", fallback["reason"]),
             "factors": data.get("factors", fallback["factors"]),
@@ -150,11 +163,19 @@ def fallback_summary(recipient, messages, channel):
     }
 
 
-def generate_followup_message(lead, context, settings):
-    model = settings.ai_followup_llm_model or "llama3-8b-8192"
+def generate_followup_message(lead, context, settings, variation_index=0):
+    configured_model = settings.ai_followup_llm_model
+    if configured_model in {None, "", "llama3-8b-8192"}:
+        configured_model = current_app.config.get("GROQ_MODEL")
+    model = configured_model or "llama-3.3-70b-versatile"
+    latest_notes = (lead.notes or "No new notes recorded").strip()
     prompt = (
         "You are an enterprise CRM follow-up assistant for Digidara Technologies. "
-        "Generate one natural, personalized follow-up message in 2 to 3 short lines. Do not repeat previous messages. "
+        "Generate one natural, personalized, customer-safe follow-up message in 2 to 3 short lines. "
+        "The latest CRM notes are the primary context: reflect their newest actionable detail and requested timing, "
+        "but never expose internal scoring, private staff commentary, or the phrase 'CRM notes'. "
+        "Compare against Previous AI follow-ups in the context and use a different opening, wording, and call to action. "
+        "Do not repeat or closely paraphrase a previous message. Do not invent facts not present in the lead or context. "
         "Be professional, concise, context-aware, and suggest the next logical step. "
         "Return only the message text.\n\n"
         f"Lead: {lead.name}\n"
@@ -165,6 +186,8 @@ def generate_followup_message(lead, context, settings):
         f"Lead score: {lead.ai_score}\n"
         f"AI reason: {lead.ai_reason}\n"
         f"Assigned salesperson: {lead.assigned_user.name if lead.assigned_user else 'Unassigned'}\n"
+        f"Latest CRM notes (highest priority): {latest_notes}\n"
+        f"Variation number: {int(variation_index) + 1}\n"
         f"Context:\n{context}"
     )
     key = current_app.config.get("GROQ_API_KEY")
@@ -175,24 +198,24 @@ def generate_followup_message(lead, context, settings):
             chat = client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.35,
+                temperature=0.7,
             )
             text = chat.choices[0].message.content.strip()
             return {"message": text, "prompt": prompt, "model": model, "status": "success", "error": None}
         except Exception as exc:
-            return {"message": fallback_followup(lead, context), "prompt": prompt, "model": model, "status": "fallback", "error": str(exc)}
-    return {"message": fallback_followup(lead, context), "prompt": prompt, "model": "deterministic-fallback", "status": "fallback", "error": None}
+            return {"message": fallback_followup(lead, variation_index), "prompt": prompt, "model": model, "status": "fallback", "error": str(exc)}
+    return {"message": fallback_followup(lead, variation_index), "prompt": prompt, "model": "deterministic-fallback", "status": "fallback", "error": None}
 
 
-def fallback_followup(lead, context):
+def fallback_followup(lead, variation_index=0):
     interest = lead.course_name or lead.internship_name or lead.business_requirement or lead.service
-    if lead.tag == "hot":
-        opener = "I wanted to quickly continue our conversation"
-    elif lead.tag == "cold":
-        opener = "Checking in to see if this is still relevant for you"
-    else:
-        opener = "Following up on your interest"
-    return (
-        f"Hi {lead.name}, {opener} about {interest}. "
-        "If you have any pending questions, I can help clarify the next steps and share the most suitable option for you."
-    )
+    note = " ".join((lead.notes or "").split())[:240]
+    note_sentence = f" I noted that {note.rstrip('.')}." if note else ""
+    variants = [
+        ("Hi", f"I’m following up about {interest}.", "Would you like me to help with the next step?"),
+        ("Hello", f"I wanted to reconnect regarding {interest}.", "Please share a convenient time and I’ll assist you."),
+        ("Hi", f"Just checking in on your interest in {interest}.", "I can clarify the details or next steps whenever you’re ready."),
+        ("Hello", f"I’m reaching out with a quick follow-up on {interest}.", "Let me know how you would like to proceed."),
+    ]
+    greeting, opening, action = variants[int(variation_index) % len(variants)]
+    return f"{greeting} {lead.name}, {opening}{note_sentence} {action}".strip()

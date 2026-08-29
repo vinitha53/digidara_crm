@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify
 
 from extensions import db
 from models import ActivityLog, Lead
+from services.lead_scoring_service import lead_scoring_signature, rescore_if_changed
 from .utils import current_user, permission_required
 
 bp = Blueprint("external_sources", __name__, url_prefix="/api/external-sources")
@@ -117,8 +118,6 @@ def map_website_lead(table_name, row):
         "external_created_at": parse_datetime(created_at),
         "notes": message or f"Imported from website table {table_name}.",
         "city": city or None,
-        "tag": "new",
-        "status": "new",
     }
 
 
@@ -141,8 +140,10 @@ def upsert_website_lead(table_name, row, actor_id):
     if is_new:
         lead = Lead()
         db.session.add(lead)
+    previous_scoring_signature = lead_scoring_signature(lead) if not is_new else None
     apply_lead_fields(lead, fields, actor_id)
     db.session.flush()
+    rescore_if_changed(lead, previous_scoring_signature, force=is_new)
     db.session.add(ActivityLog(
         user_id=actor_id,
         action="website_lead_synced",

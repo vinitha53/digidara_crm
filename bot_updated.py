@@ -65,6 +65,8 @@ COMPANY_DOMAIN  = "https://www.digidaratechnologies.com"
 CRM_API_URL = os.getenv("CRM_API_URL", "").strip()
 CRM_INTEGRATION_API_KEY = os.getenv("CRM_INTEGRATION_API_KEY", "").strip()
 CRM_INTEGRATION_SIGNING_SECRET = os.getenv("CRM_INTEGRATION_SIGNING_SECRET", "").strip()
+CRM_PUSH_TIMEOUT_SECONDS = max(5, int(os.getenv("CRM_PUSH_TIMEOUT_SECONDS", "15")))
+CRM_PUSH_RETRY_COUNT = max(1, min(5, int(os.getenv("CRM_PUSH_RETRY_COUNT", "3"))))
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL   = "gpt-4o"
@@ -1035,6 +1037,59 @@ def customer_summary_template_params(name: str, summary: str, next_step: str) ->
         CUSTOMER_SUMMARY_TEMPLATE_PARAM_COUNT
     )
 
+
+def latest_customer_message(conversation: str) -> str:
+    """Return the latest customer-authored message from the stored transcript."""
+    for line in reversed((conversation or "").splitlines()):
+        if line.startswith("[User "):
+            return re.sub(r"^\[User \d{1,2}:\d{2}\]\s*", "", line).strip()[:1000]
+    return ""
+
+
+def crm_conversation_notes(name: str, conversation: str, latest_text: str = "") -> str:
+    """Create sales-facing notes for CRM; this text is never sent to the customer."""
+    conversation = (conversation or "").strip()
+    latest_text = (latest_text or latest_customer_message(conversation)).strip()
+    prompt = f"""Summarize this WhatsApp conversation for a CRM salesperson.
+
+Customer: {name or 'WhatsApp User'}
+Conversation:
+{conversation[-6000:]}
+
+Return concise plain text using exactly these labels:
+Main enquiry:
+Interested course or service:
+Customer intent:
+Urgency or timeline:
+Pricing or payment interest:
+Objections or concerns:
+Requested action:
+Recommended next step:
+Latest customer message:
+
+Rules:
+- Use only facts stated in the conversation.
+- Write "Not stated" when information is missing.
+- Do not classify the lead as hot, warm, or cold; the CRM will classify it.
+- Do not include internal instructions or markdown fences.
+- Keep the complete summary under 1,500 characters."""
+    generated = ask_llm_summary(prompt, max_tokens=350).strip()
+    if generated and generated.lower() != "summary generation failed.":
+        return generated[:5000]
+
+    recent_user_messages = []
+    for line in conversation.splitlines():
+        if line.startswith("[User "):
+            recent_user_messages.append(
+                re.sub(r"^\[User \d{1,2}:\d{2}\]\s*", "", line).strip()
+            )
+    recent = " | ".join(value for value in recent_user_messages[-6:] if value)
+    return (
+        "WhatsApp conversation summary: LLM summary was unavailable.\n"
+        f"Recent customer messages: {recent or latest_text or 'Not stated'}\n"
+        f"Latest customer message: {latest_text or 'Not stated'}"
+    )[:5000]
+
 def _send_inactivity_summary_if_idle(phone: str, token: float):
     with _inactivity_lock:
         timer_info = _inactivity_timers.get(phone)
@@ -1067,6 +1122,19 @@ Rules:
 
         raw = ask_llm_summary(prompt, max_tokens=180)
         summary, next_step = parse_summary_parts(raw)
+        crm_notes = crm_conversation_notes(
+            name=name,
+            conversation=conv,
+            latest_text=latest_customer_message(conv),
+        )
+        # CRM persistence is independent of whether the customer-facing
+        # summary template is delivered successfully.
+        push_lead_to_crm(
+            phone=phone,
+            name=name,
+            text=latest_customer_message(conv),
+            notes=crm_notes,
+        )
         msg = (
             f"Hi {name}, here is a quick summary of our conversation:\n\n"
             f"{summary}\n\n"
@@ -1201,8 +1269,20 @@ def is_greeting(text: str) -> bool:
 # ─────────────────────────────────────────────────────────────
 # MESSAGE HANDLER — State Machine
 # ─────────────────────────────────────────────────────────────
-def push_lead_to_crm(phone: str, name: str, text: str, lead=None):
-    """Create or update one CRM lead for this WhatsApp contact."""
+def push_lead_to_crm(
+    phone: str,
+    name: str,
+    text: str = "",
+    lead=None,
+    notes: str = "",
+    email: str = "",
+):
+    """Create/update one CRM lead through its signed API.
+
+    The stable external ID makes repeated WhatsApp messages update the same
+    CRM row. The bot deliberately does not send a tag or score; CRM owns LLM
+    classification using the supplied notes.
+    """
     if not (
         CRM_API_URL
         and CRM_INTEGRATION_API_KEY
@@ -1211,19 +1291,24 @@ def push_lead_to_crm(phone: str, name: str, text: str, lead=None):
         log.error("CRM integration environment variables are missing")
         return False
 
-    lead = lead or classify_lead(latest_text=text)
-    tag_mapping = {"Hot": "hot", "Warm": "warm", "Cold": "cold"}
+    normalized_phone = re.sub(r"\D", "", phone or "")
+    if not normalized_phone:
+        log.error("CRM lead push skipped: phone is missing")
+        return False
+
+    crm_notes = (notes or f"Latest WhatsApp enquiry: {text}" or "WhatsApp enquiry").strip()
     payload = {
         "source_system": "whatsapp",
-        "external_id": f"whatsapp:{phone}",
+        "source": "whatsapp",
+        "external_id": f"whatsapp:{normalized_phone}",
         "external_created_at": datetime.now(timezone.utc).isoformat(),
         "name": name or "WhatsApp User",
-        "phone": phone,
+        "phone": normalized_phone,
+        "email": (email or "").strip() or None,
         "lead_category": "course",
         "service": "WhatsApp Enquiry",
         "message": text[:2000],
-        "tag": tag_mapping.get(lead.get("lead_status"), "new"),
-        "status": "new",
+        "notes": crm_notes[:5000],
     }
     body = json.dumps(
         payload,
@@ -1242,43 +1327,64 @@ def push_lead_to_crm(phone: str, name: str, text: str, lead=None):
     if parsed.query:
         path += "?" + parsed.query
 
-    connection = None
-    try:
-        connection_class = (
-            http.client.HTTPSConnection
-            if parsed.scheme == "https"
-            else http.client.HTTPConnection
-        )
-        connection = connection_class(
-            parsed.hostname,
-            parsed.port,
-            timeout=15,
-        )
-        connection.request(
-            "POST",
-            path,
-            body=body,
-            headers={
-                "Content-Type": "application/json",
-                "X-CRM-API-Key": CRM_INTEGRATION_API_KEY,
-                "X-CRM-Timestamp": timestamp,
-                "X-CRM-Signature": signature,
-            },
-        )
-        response = connection.getresponse()
-        response_body = response.read().decode("utf-8", errors="replace")
-        log.info(
-            "CRM lead push: HTTP %s | %s",
-            response.status,
-            response_body[:500],
-        )
-        return response.status in (200, 201)
-    except Exception:
-        log.exception("CRM lead push failed")
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        log.error("CRM lead push skipped: CRM_API_URL must be a valid HTTP(S) URL")
         return False
-    finally:
-        if connection:
-            connection.close()
+
+    for attempt in range(1, CRM_PUSH_RETRY_COUNT + 1):
+        connection = None
+        try:
+            connection_class = (
+                http.client.HTTPSConnection
+                if parsed.scheme == "https"
+                else http.client.HTTPConnection
+            )
+            connection = connection_class(
+                parsed.hostname,
+                parsed.port,
+                timeout=CRM_PUSH_TIMEOUT_SECONDS,
+            )
+            connection.request(
+                "POST",
+                path,
+                body=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-CRM-API-Key": CRM_INTEGRATION_API_KEY,
+                    "X-CRM-Timestamp": timestamp,
+                    "X-CRM-Signature": signature,
+                },
+            )
+            response = connection.getresponse()
+            response_body = response.read().decode("utf-8", errors="replace")
+            log.info(
+                "CRM lead push: HTTP %s | attempt %s/%s | %s",
+                response.status,
+                attempt,
+                CRM_PUSH_RETRY_COUNT,
+                response_body[:500],
+            )
+            if response.status in (200, 201):
+                return True
+            # Authentication, signature and validation errors require a
+            # configuration/code correction, not an automatic retry.
+            if response.status < 500:
+                return False
+        except Exception as exc:
+            log.warning(
+                "CRM lead push attempt %s/%s failed: %s",
+                attempt,
+                CRM_PUSH_RETRY_COUNT,
+                exc,
+            )
+        finally:
+            if connection:
+                connection.close()
+        if attempt < CRM_PUSH_RETRY_COUNT:
+            time.sleep(min(4, 2 ** (attempt - 1)))
+
+    log.error("CRM lead push failed after %s attempt(s)", CRM_PUSH_RETRY_COUNT)
+    return False
 
 
 def handle_message(phone: str, text: str):

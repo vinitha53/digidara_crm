@@ -7,6 +7,7 @@ os.environ["DIGIDARA_SKIP_AUTO_APP"] = "1"
 os.environ["SECRET_KEY"] = "test-login-otp-secret"
 os.environ["JWT_SECRET_KEY"] = "test-jwt-secret"
 
+from flask_jwt_extended import create_refresh_token, decode_token
 from app import create_app
 from extensions import db
 from models import LoginOtpChallenge, User
@@ -31,6 +32,17 @@ class LoginOtpTestCase(unittest.TestCase):
         )
         user.set_password("Admin@1234")
         db.session.add(user)
+        staff = User(
+            name="Digidara Staff",
+            login_id="staff",
+            email="staff@digidaratechnologies.com",
+            phone="+919000000001",
+            role="staff",
+            is_active=1,
+            otp_enabled=0,
+        )
+        staff.set_password("Staff@1234")
+        db.session.add(staff)
         db.session.commit()
         self.client = self.app.test_client()
 
@@ -57,6 +69,7 @@ class LoginOtpTestCase(unittest.TestCase):
         response = self.client.post("/api/auth/login", json={
             "email": "admin",
             "password": "Admin@1234",
+            "login_type": "admin",
         })
 
         self.assertEqual(response.status_code, 202)
@@ -94,7 +107,7 @@ class LoginOtpTestCase(unittest.TestCase):
     @patch("routes.auth.send_whatsapp_template")
     def test_repeated_login_reuses_challenge_and_sends_only_once(self, send_template):
         send_template.return_value = {"ok": True, "data": {"messages": [{"id": "wamid.single"}]}}
-        credentials = {"email": "admin", "password": "Admin@1234"}
+        credentials = {"email": "admin", "password": "Admin@1234", "login_type": "admin"}
 
         first = self.client.post("/api/auth/login", json=credentials)
         second = self.client.post("/api/auth/login", json=credentials)
@@ -113,6 +126,7 @@ class LoginOtpTestCase(unittest.TestCase):
         response = self.client.post("/api/auth/login", json={
             "email": "admin",
             "password": "Admin@1234",
+            "login_type": "admin",
         })
 
         self.assertEqual(response.status_code, 409)
@@ -124,6 +138,7 @@ class LoginOtpTestCase(unittest.TestCase):
         response = self.client.post("/api/auth/login", json={
             "email": "admin",
             "password": "Admin@1234",
+            "login_type": "admin",
         })
 
         self.assertEqual(response.status_code, 503)
@@ -146,6 +161,7 @@ class LoginOtpTestCase(unittest.TestCase):
             started = self.client.post("/api/auth/login", json={
                 "email": "admin",
                 "password": "Admin@1234",
+                "login_type": "admin",
             }).get_json()
             resent = self.client.post("/api/auth/resend-otp", json={
                 "challenge_id": started["challenge_id"],
@@ -174,11 +190,106 @@ class LoginOtpTestCase(unittest.TestCase):
         response = self.client.post("/api/auth/login", json={
             "email": "admin",
             "password": "Admin@1234",
+            "login_type": "admin",
         })
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("access_token", response.get_json())
         send_template.assert_not_called()
+
+    def test_admin_login_rejects_staff_accounts(self):
+        response = self.client.post("/api/auth/login", json={
+            "email": "staff",
+            "password": "Staff@1234",
+            "login_type": "admin",
+        })
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("Staff Login", response.get_json()["message"])
+        self.assertNotIn("access_token", response.get_json())
+
+    def test_staff_login_rejects_administrator_accounts(self):
+        response = self.client.post("/api/auth/login", json={
+            "email": "admin",
+            "password": "Admin@1234",
+            "login_type": "staff",
+        })
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("Admin Login", response.get_json()["message"])
+        self.assertNotIn("access_token", response.get_json())
+
+    def test_staff_login_accepts_non_admin_accounts(self):
+        response = self.client.post("/api/auth/login", json={
+            "email": "staff",
+            "password": "Staff@1234",
+            "login_type": "staff",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["user"]["role"], "staff")
+        self.assertIn("access_token", response.get_json())
+        self.assertIn("refresh_token", response.get_json())
+
+    def test_refresh_rotates_tokens_and_keeps_an_active_user_signed_in(self):
+        login = self.client.post("/api/auth/login", json={
+            "email": "staff",
+            "password": "Staff@1234",
+            "login_type": "staff",
+        }).get_json()
+
+        renewed = self.client.post(
+            "/api/auth/refresh",
+            headers={"Authorization": f"Bearer {login['refresh_token']}"},
+        )
+
+        self.assertEqual(renewed.status_code, 200)
+        self.assertIn("access_token", renewed.get_json())
+        self.assertIn("refresh_token", renewed.get_json())
+        me = self.client.get(
+            "/api/auth/me",
+            headers={"Authorization": f"Bearer {renewed.get_json()['access_token']}"},
+        )
+        self.assertEqual(me.status_code, 200)
+        self.assertEqual(me.get_json()["login_id"], "staff")
+
+    def test_refresh_token_session_window_is_thirty_minutes(self):
+        login = self.client.post("/api/auth/login", json={
+            "email": "staff",
+            "password": "Staff@1234",
+            "login_type": "staff",
+        }).get_json()
+
+        claims = decode_token(login["refresh_token"])
+        self.assertGreaterEqual(claims["exp"] - claims["iat"], 29 * 60)
+        self.assertLessEqual(claims["exp"] - claims["iat"], 30 * 60)
+        self.assertEqual(claims["session_policy"], "idle-30-v1")
+
+    def test_refresh_rejects_tokens_from_the_old_long_lived_policy(self):
+        staff = User.query.filter_by(login_id="staff").one()
+        old_token = create_refresh_token(identity=str(staff.id))
+
+        response = self.client.post(
+            "/api/auth/refresh",
+            headers={"Authorization": f"Bearer {old_token}"},
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("updated security policy", response.get_json()["message"])
+
+    def test_refresh_rejects_a_user_whose_access_was_deactivated(self):
+        staff = User.query.filter_by(login_id="staff").one()
+        token = create_refresh_token(identity=str(staff.id))
+        staff.is_active = 0
+        db.session.commit()
+
+        response = self.client.post(
+            "/api/auth/refresh",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("no longer active", response.get_json()["message"])
 
 
 if __name__ == "__main__":

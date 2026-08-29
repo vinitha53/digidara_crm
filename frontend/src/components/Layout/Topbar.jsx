@@ -3,17 +3,18 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import api from "../../api/client.js";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { sentenceCase } from "../../utils/text.js";
 
 const titles = {
-  dashboard: ["Business Dashboard", "Academic and client-project lead health, losses and team execution"],
+  dashboard: ["Business dashboard", "Academic and client-project lead health, losses and team execution"],
   leads: ["Leads", "Capture, qualify and convert opportunities"],
   customers: ["Customers", "Manage active accounts and relationship value"],
   tasks: ["Tasks", "Track follow-ups, internal work and overdue actions"],
   calendar: ["Calendar", "Daily agenda, reminders and meeting schedule"],
-  "ai-chat": ["AI Chat", "Ask questions against your live CRM database"],
+  "ai-chat": ["AI chat", "Ask questions about your live CRM database"],
   campaigns: ["Campaigns", "Run WhatsApp and email outreach"],
-  communication: ["Customer Communication", "Send single or bulk customer WhatsApp messages"],
-  whatsapp: ["WhatsApp Messages", "Read bot conversations and AI summaries by contact"],
+  communication: ["Customer communication", "Send individual or bulk WhatsApp messages to customers"],
+  whatsapp: ["WhatsApp messages", "Read bot conversations and AI summaries by contact"],
   reports: ["Reports", "Conversion, demand, sources and team accountability"],
   employees: ["Employees", "Team access, departments and permissions"],
   settings: ["Settings", "Company profile and business integrations"],
@@ -130,17 +131,17 @@ export default function Topbar({ onMenuClick, navigationOpen = false }) {
         {searchOpen && search.trim().length >= 2 && (
           <div className="search-results">
             <div className="search-results-head">
-              <strong>Global Search</strong>
+              <strong>Global search</strong>
               <span>{searching ? "Searching..." : `${searchResults.length} result${searchResults.length === 1 ? "" : "s"}`}</span>
             </div>
             {!searching && searchResults.map((item) => (
               <Link className="search-result" key={`${item.module}-${item.meta?.id}-${item.title}`} to={item.href} onClick={() => setSearchOpen(false)}>
-                <span>{item.module}</span>
+                <span>{sentenceCase(item.module)}</span>
                 <strong>{item.title}</strong>
                 <small>{item.subtitle}</small>
               </Link>
             ))}
-            {!searching && !searchResults.length && <div className="search-empty">No matching CRM records</div>}
+            {!searching && !searchResults.length && <div className="search-empty">No matching CRM records.</div>}
           </div>
         )}
       </div>
@@ -161,7 +162,7 @@ export default function Topbar({ onMenuClick, navigationOpen = false }) {
               {item.href ? <Link className="notify-item" to={item.href} onClick={() => openNotification(item)}><NotificationContent item={item} /></Link> : <button className="notify-item" onClick={() => openNotification(item)}><NotificationContent item={item} /></button>}
               {!item.is_read && <button className="notify-read" title="Mark as read" aria-label={`Mark ${item.title} as read`} onClick={() => markRead(item)}><IconCheck size={15} /></button>}
             </div>)}
-            {!visibleNotifications.length && <div className="notify-empty"><IconBell size={22} /><strong>{notificationFilter === "unread" ? "You’re all caught up" : "No notifications yet"}</strong><span>{notificationFilter === "unread" ? "New task and workflow alerts will appear here." : "Alerts will appear here when CRM activity needs you."}</span></div>}
+            {!visibleNotifications.length && <div className="notify-empty"><IconBell size={22} /><strong>{notificationFilter === "unread" ? "You’re all caught up." : "No notifications yet."}</strong><span>{notificationFilter === "unread" ? "New task and workflow alerts will appear here." : "Alerts will appear here when CRM activity needs your attention."}</span></div>}
           </div>
         </div>}
       </div>

@@ -1,5 +1,10 @@
 from pathlib import Path
+import re
 import unittest
+
+from extensions import db
+import models  # noqa: F401 - registers every SQLAlchemy table in db.metadata
+from permissions import PERMISSION_PAGES, default_allowed
 
 
 class SchemaContractTestCase(unittest.TestCase):
@@ -21,6 +26,9 @@ class SchemaContractTestCase(unittest.TestCase):
             "conversation_title VARCHAR(160) NULL",
             "KEY idx_ai_interactions_conversation (user_id, conversation_id, created_at)",
             "SET conversation_id = CONCAT('legacy-', id)",
+            "CALL add_column_if_missing('ai_interactions', 'model', 'VARCHAR(100) NULL')",
+            "CALL add_column_if_missing('ai_interactions', 'status', 'VARCHAR(30) NOT NULL DEFAULT ''success''')",
+            "CALL add_column_if_missing('ai_interactions', 'sources', 'VARCHAR(255) NULL')",
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
@@ -38,6 +46,47 @@ class SchemaContractTestCase(unittest.TestCase):
         ):
             with self.subTest(secret_field=secret_field):
                 self.assertNotIn(f"{secret_field} = VALUES({secret_field})", duplicate_update)
+
+    def test_every_model_table_and_column_exists_in_schema(self):
+        schema = (Path(__file__).resolve().parents[1] / "schema.sql").read_text(encoding="utf-8")
+        definitions = {
+            match.group(1): match.group(2)
+            for match in re.finditer(
+                r"^CREATE TABLE IF NOT EXISTS\s+`?([a-z_]+)`?\s*\((.*?)^\) ENGINE=",
+                schema,
+                re.MULTILINE | re.DOTALL,
+            )
+        }
+
+        for table in db.metadata.sorted_tables:
+            with self.subTest(table=table.name):
+                self.assertIn(table.name, definitions)
+                schema_columns = {
+                    match.group(1)
+                    for line in definitions[table.name].splitlines()
+                    if (match := re.match(r"\s*`?([a-z_][a-z0-9_]*)`?\s+[A-Z]", line))
+                }
+                self.assertEqual(set(table.columns.keys()) - schema_columns, set())
+
+    def test_permission_seed_matches_current_permission_matrix(self):
+        schema = (Path(__file__).resolve().parents[1] / "schema.sql").read_text(encoding="utf-8")
+        seed = schema.split("INSERT IGNORE INTO role_permissions (role, page_key, action, allowed)", 1)[1].split(";", 1)[0]
+        actual = {
+            (role, page, action): value == "1"
+            for role, page, action, value in re.findall(
+                r"\('(admin|staff)',\s*'([^']+)',\s*'([^']+)',\s*([01])\)",
+                seed,
+            )
+        }
+        expected = {
+            (role, page["key"], action): default_allowed(role, page["key"], action)
+            for role in ("admin", "staff")
+            for page in PERMISSION_PAGES
+            for action in page["actions"]
+        }
+
+        self.assertEqual(actual, expected)
+        self.assertNotIn("'support'", seed)
 
 
 if __name__ == "__main__":

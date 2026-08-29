@@ -2,6 +2,15 @@
 
 All notable changes to DigiDARA CRM are documented here.
 
+## 2026-08-28
+
+### Lead intake automation
+
+- Replaced the lead CSV import/export workflow with connected WhatsApp, website-form and chatbot ingestion.
+- Added automatic hot/warm/cold classification whenever a lead is created or meaningful sales context changes.
+- Made external source IDs idempotent and kept lead type under CRM AI ownership.
+- Added a Leads workspace action to sync every configured pull-based source.
+
 ## 2026-07-17
 
 ### Redesigned and improved
@@ -41,7 +50,7 @@ All notable changes to DigiDARA CRM are documented here.
 - Added Calendar agenda support using task reminders, recurrence, dependencies, and meeting fields.
 - Added AI Copilot page and database-backed interaction history.
 - Added Course, Batch, and Student Management module for Digidara training workflows.
-- Added Core CRM bulk lead actions, CSV lead import, lead/customer/report exports, duplicate lead detection, and lead timeline.
+- Added Core CRM bulk lead actions, customer/report exports, duplicate lead detection, and lead timeline.
 - Added Customer Notes and Customer Document Attachments with MySQL-backed storage.
 - Added recurring task automation, task reminder notifications, meeting invite tracking, and rich day/week calendar UI.
 - Added AI Follow-up Automation Engine with context-aware generation, scheduling, pause/resume, send-now, manual follow-up marking, dashboard analytics, settings controls, audit history and prompt logs.

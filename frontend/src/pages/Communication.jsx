@@ -115,7 +115,7 @@ export default function Communication() {
   const toggleVisible = () => setSelectedCustomerIds((old) => allVisibleSelected ? old.filter((id) => !visibleIds.includes(id)) : [...new Set([...old, ...visibleIds])]);
 
   return <div className="page communication-page focused-communication">
-    <div className="communication-head"><div><span>CUSTOMER COMMUNICATION</span><h2>Send customer WhatsApp messages</h2><p>Use one customer for a personal update or select multiple customers for a personalized bulk message.</p></div><div className="whatsapp-mark"><IconBrandWhatsapp size={28} /><span>WhatsApp</span></div></div>
+    <div className="communication-head"><div><span>Customer communication</span><h2>Send WhatsApp messages to customers</h2><p>Select one customer for a personal update or select multiple customers for a personalized bulk message.</p></div><div className="whatsapp-mark"><IconBrandWhatsapp size={28} /><span>WhatsApp</span></div></div>
 
     <div className="communication-summary">
       <Card><span>Available customers</span><strong>{recipientTotal}</strong><small>{limited ? "Showing first 200" : "Within your access"}</small></Card>

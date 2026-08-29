@@ -6,6 +6,7 @@ import Card from "../components/UI/Card.jsx";
 import KpiCard from "../components/UI/KpiCard.jsx";
 import Toast from "../components/UI/Toast.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { sentenceCase } from "../utils/text.js";
 import { can } from "../permissions.js";
 
 const emptyState = {
@@ -17,7 +18,8 @@ const emptyState = {
 
 function formatDate(value) {
   if (!value) return "-";
-  return new Date(value).toLocaleString();
+  const utcValue = /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : `${value}Z`;
+  return new Date(utcValue).toLocaleString();
 }
 
 function tone(status) {
@@ -49,6 +51,11 @@ export default function AIFollowups() {
     .catch(() => setToast({ type: "error", message: "Could not load AI follow-ups" }));
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (!data.settings.test_mode) return undefined;
+    const timer = window.setInterval(load, 15000);
+    return () => window.clearInterval(timer);
+  }, [data.settings.test_mode]);
 
   const generate = () => {
     if (!selectedLeadId) return;
@@ -84,7 +91,7 @@ export default function AIFollowups() {
         setToast({ type: "success", message: `Run complete: ${result.sent} sent, ${result.skipped} skipped, ${result.failed} failed` });
         load();
       })
-      .catch(() => setToast({ type: "error", message: "Could not run due follow-ups" }))
+      .catch(() => setToast({ type: "error", message: "Could not run scheduled follow-ups" }))
       .finally(() => setLoading(false));
   };
 
@@ -106,37 +113,41 @@ export default function AIFollowups() {
       <Card>
         <div className="card-head">
           <div>
-            <h2>AI Follow-up Test</h2>
+            <h2>AI follow-up test</h2>
             <small>{data.settings.enabled ? "Automation enabled" : "Automation disabled"} - {data.settings.preferred_channel || "WhatsApp"} - {data.settings.model || "fallback"}</small>
           </div>
-          {can(user, "ai_followups", "run") && <Button onClick={runDue} disabled={loading}>Run Due</Button>}
+          {can(user, "ai_followups", "run") && <Button onClick={runDue} disabled={loading}>Run scheduled follow-ups</Button>}
         </div>
+
+        {data.settings.test_mode && <div className="notice amber">
+          Local minute test is active: Hot every {data.settings.test_intervals_minutes?.hot} minutes, Warm every {data.settings.test_intervals_minutes?.warm} minutes, and Cold every {data.settings.test_intervals_minutes?.cold} minutes. Keep the backend running.
+        </div>}
 
         <div className="form-grid">
           <label className="field wide">
             <span>Lead</span>
             <select value={selectedLeadId} onChange={(e) => { setSelectedLeadId(e.target.value); setSelectedHistory(null); setMessage(""); }}>
-              {data.leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.name} - {lead.tag || "warm"} - {lead.channel}</option>)}
+              {data.leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.name} - {sentenceCase(lead.tag, "Warm")} - {sentenceCase(lead.channel)}</option>)}
             </select>
           </label>
           {selectedLead && <div className="mini-grid wide">
-            <div><span>Status</span><strong>{selectedLead.status}</strong></div>
-            <div><span>Temperature</span><strong>{selectedLead.tag || "warm"}</strong></div>
+            <div><span>Status</span><strong>{sentenceCase(selectedLead.status)}</strong></div>
+            <div><span>Temperature</span><strong>{sentenceCase(selectedLead.tag, "Warm")}</strong></div>
             <div><span>Next</span><strong>{formatDate(selectedLead.ai_next_followup_at)}</strong></div>
             <div><span>Count</span><strong>{selectedLead.ai_followup_count || 0}</strong></div>
           </div>}
           <label className="field wide">
-            <span>Generated / Edited Message</span>
+            <span>Generated or edited message</span>
             <textarea rows="8" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Generate a message to preview it here." />
           </label>
           {selectedLead?.stop_reason && <div className="notice red wide">{selectedLead.stop_reason}</div>}
-          <Button onClick={generate} disabled={loading || !selectedLeadId || !can(user, "ai_followups", "generate")}>Generate Message</Button>
-          <Button onClick={send} disabled={loading || !selectedHistory?.id || !message || !can(user, "ai_followups", "send")}>Send WhatsApp / Email</Button>
+          <Button onClick={generate} disabled={loading || !selectedLeadId || !can(user, "ai_followups", "generate")}>Generate message</Button>
+          <Button onClick={send} disabled={loading || !selectedHistory?.id || !message || !can(user, "ai_followups", "send")}>Send via WhatsApp or email</Button>
         </div>
       </Card>
 
       <Card>
-        <h2>Lead Queue</h2>
+        <h2>Lead queue</h2>
         <div className="compact-list">
           {data.leads.map((lead) => <button className={`list-row ${String(lead.id) === String(selectedLeadId) ? "active-row" : ""}`} key={lead.id} onClick={() => setSelectedLeadId(lead.id)}>
             <span><strong>{lead.name}</strong><small>{lead.phone || lead.email || lead.company || "-"}</small></span>
@@ -148,14 +159,14 @@ export default function AIFollowups() {
     </div>
 
     <Card>
-      <div className="card-head"><h2>Follow-up History</h2><Badge>{data.history.length}</Badge></div>
+      <div className="card-head"><h2>Follow-up history</h2><Badge>{data.history.length}</Badge></div>
       <div className="table-wrap data-table-wrap">
         <table className="data-table">
           <thead><tr><th>Lead</th><th>Channel</th><th>Status</th><th>Scheduled</th><th>Sent</th><th>Message</th><th>Action</th></tr></thead>
           <tbody>
             {data.history.map((row) => <tr key={row.id}>
               <td data-label="Lead">{row.lead_id}</td>
-              <td data-label="Channel">{row.channel}</td>
+              <td data-label="Channel">{sentenceCase(row.channel)}</td>
               <td data-label="Status"><Badge tone={tone(row.status)}>{row.status}</Badge></td>
               <td data-label="Scheduled">{formatDate(row.scheduled_for)}</td>
               <td data-label="Sent">{formatDate(row.sent_at)}</td>

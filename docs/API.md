@@ -1,6 +1,6 @@
 # API Documentation
 
-Base URL: `http://localhost:5000/api`
+Base URL: `http://localhost:5002/api`
 
 Authentication: protected endpoints require a JWT access token in the `Authorization` header.
 
@@ -147,6 +147,8 @@ Permission behavior:
 ## External Lead Intake
 
 `POST /integrations/leads` accepts leads from separate apps such as the WhatsApp bot, chatbot, and website enquiry forms. This endpoint does not use JWT login; it uses a shared API key plus HMAC signature so another domain can push data without direct CRM database access.
+
+Each accepted lead is deduplicated by `source_system + external_id` (with a phone/source fallback), classified from its notes and CRM context, and stored with a `hot`, `warm`, or `cold` tag plus AI score metadata. The caller cannot set the tag. A retry updates the existing lead and only triggers reclassification when scoring-relevant information changed.
 
 Required headers:
 

@@ -10,6 +10,7 @@ from models import ActivityLog, CommunicationSummary, Customer, Lead, MessageLog
 from permissions import has_permission
 from services.ai_service import summarize_communication
 from services.email_service import send_email
+from services.lead_scoring_service import lead_scoring_signature, rescore_if_changed
 from services.whatsapp_service import send_whatsapp, send_whatsapp_template
 from .utils import current_user, permission_required
 
@@ -176,6 +177,8 @@ def upsert_whatsapp_lead(row, actor_id):
         )
         db.session.add(lead)
 
+    previous_scoring_signature = lead_scoring_signature(lead) if not is_new else None
+
     if row.get("name") and (is_new or lead.name in {"WhatsApp User", normalized_phone, phone}):
         lead.name = row["name"]
     lead.phone = normalized_phone
@@ -185,11 +188,14 @@ def upsert_whatsapp_lead(row, actor_id):
     lead.external_created_at = lead.external_created_at or row_datetime(row)
     if actor_id and not lead.assigned_to:
         lead.assigned_to = actor_id
-    if not lead.notes:
-        last_message = latest_user_message(row)
-        lead.notes = f"Imported from WhatsApp bot. Last user message: {last_message}" if last_message else "Imported from WhatsApp bot."
+    last_message = latest_user_message(row)
+    if last_message:
+        lead.notes = f"Latest WhatsApp message: {last_message}"
+    elif not lead.notes:
+        lead.notes = "Imported from WhatsApp bot."
 
     db.session.flush()
+    rescore_if_changed(lead, previous_scoring_signature, force=is_new)
     db.session.add(ActivityLog(
         user_id=actor_id,
         action="whatsapp_bot_lead_synced",

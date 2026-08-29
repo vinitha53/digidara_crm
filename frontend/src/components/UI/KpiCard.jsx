@@ -1,10 +1,11 @@
 import Card from "./Card.jsx";
 import { IconAlertTriangle, IconBell, IconBriefcase, IconChartBar, IconChevronRight, IconClipboardCheck, IconSchool, IconTargetArrow, IconUsers } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
+import { sentenceCase } from "../../utils/text.js";
 
 export default function KpiCard({ label, value, sub, color = "purple", to, onClick }) {
   const MetricIcon = iconFor(label);
-  const content = <><div className="kpi-icon" aria-hidden="true"><MetricIcon size={23} stroke={1.8} /></div><span>{label}</span><strong>{value}</strong><small>{sub}</small>{to && <IconChevronRight className="kpi-arrow" size={18} />}</>;
+  const content = <><div className="kpi-icon" aria-hidden="true"><MetricIcon size={23} stroke={1.8} /></div><span>{sentenceCase(label)}</span><strong>{value}</strong><small>{sub}</small>{to && <IconChevronRight className="kpi-arrow" size={18} />}</>;
   if (onClick) return <button type="button" className={`card kpi clickable kpi-button ${color}`} onClick={onClick}>{content}</button>;
   return to ? <Link className={`card kpi clickable ${color}`} to={to}>{content}</Link> : <Card className={`kpi ${color}`}>{content}</Card>;
 }

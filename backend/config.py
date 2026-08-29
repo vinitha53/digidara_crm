@@ -1,8 +1,14 @@
 import os
+from datetime import timedelta
 from urllib.parse import quote_plus
 from dotenv import load_dotenv
 
 load_dotenv()
+
+RETIRED_GROQ_MODELS = {
+    "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
+    "llama-3.1-8b-instant": "openai/gpt-oss-20b",
+}
 
 
 def mysql_database_url():
@@ -18,6 +24,12 @@ def mysql_database_url():
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-jwt-secret")
+    # Access is short lived and may only be renewed inside the 30-minute
+    # rolling session window.  A refresh token must never survive for days on
+    # a shared CRM workstation.
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=int(os.getenv("JWT_ACCESS_TOKEN_MINUTES", "15")))
+    JWT_REFRESH_TOKEN_EXPIRES = timedelta(minutes=int(os.getenv("JWT_REFRESH_TOKEN_MINUTES", "30")))
+    JWT_SESSION_POLICY = os.getenv("JWT_SESSION_POLICY", "idle-30-v1")
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL") or mysql_database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     BOT_DB_HOST = os.getenv("BOT_DB_HOST", os.getenv("DB_HOST", "localhost"))
@@ -34,15 +46,32 @@ class Config:
     CRM_INTEGRATION_SIGNING_SECRET = os.getenv("CRM_INTEGRATION_SIGNING_SECRET", "")
     INTEGRATION_ALLOWED_SOURCES = [
         value.strip().lower()
-        for value in os.getenv("INTEGRATION_ALLOWED_SOURCES", "whatsapp,chatbot,website").split(",")
+        for value in os.getenv("INTEGRATION_ALLOWED_SOURCES", "whatsapp,chatbot,website,google_form").split(",")
         if value.strip()
     ]
     CRM_AGENCY_ID = int(os.getenv("CRM_AGENCY_ID", "2"))
     GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-    GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+    GROQ_MODEL = RETIRED_GROQ_MODELS.get(
+        os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
+        os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
+    )
+    GROQ_FALLBACK_MODELS = [
+        value.strip()
+        for value in os.getenv("GROQ_FALLBACK_MODELS", "qwen/qwen3.6-27b,openai/gpt-oss-20b").split(",")
+        if value.strip()
+    ]
+    AI_CHAT_MAX_CONVERSATIONS = int(os.getenv("AI_CHAT_MAX_CONVERSATIONS", "30"))
+    AI_CHAT_MAX_MESSAGES_PER_CONVERSATION = int(os.getenv("AI_CHAT_MAX_MESSAGES_PER_CONVERSATION", "50"))
+    AI_CHAT_CONTEXT_MESSAGES = int(os.getenv("AI_CHAT_CONTEXT_MESSAGES", "6"))
+    AI_FOLLOWUP_TEST_MODE = os.getenv("AI_FOLLOWUP_TEST_MODE", "0") == "1"
+    AI_FOLLOWUP_TEST_HOT_MINUTES = int(os.getenv("AI_FOLLOWUP_TEST_HOT_MINUTES", "3"))
+    AI_FOLLOWUP_TEST_WARM_MINUTES = int(os.getenv("AI_FOLLOWUP_TEST_WARM_MINUTES", "5"))
+    AI_FOLLOWUP_TEST_COLD_MINUTES = int(os.getenv("AI_FOLLOWUP_TEST_COLD_MINUTES", "7"))
+    AI_FOLLOWUP_SCHEDULER_INTERVAL_SECONDS = max(10, int(os.getenv("AI_FOLLOWUP_SCHEDULER_INTERVAL_SECONDS", "15")))
     WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN", "")
     WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
     WHATSAPP_LEAD_TEMPLATE_NAME = os.getenv("WHATSAPP_LEAD_TEMPLATE_NAME", "lead_enquiry_acknowledgement")
+    WHATSAPP_LEAD_ASSIGNMENT_TEMPLATE_NAME = os.getenv("WHATSAPP_LEAD_ASSIGNMENT_TEMPLATE_NAME", "staff_lead_assignment")
     WHATSAPP_CUSTOMER_TEMPLATE_NAME = os.getenv("WHATSAPP_CUSTOMER_TEMPLATE_NAME", "customer_conversion_welcome")
     WHATSAPP_COMMUNICATION_TEMPLATE_NAME = os.getenv("WHATSAPP_COMMUNICATION_TEMPLATE_NAME", "customer_communication_message")
     WHATSAPP_AI_FOLLOWUP_TEMPLATE_NAME = os.getenv("WHATSAPP_AI_FOLLOWUP_TEMPLATE_NAME", "ai_lead_followup_message")

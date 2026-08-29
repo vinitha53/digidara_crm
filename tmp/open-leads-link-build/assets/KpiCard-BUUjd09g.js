@@ -1,0 +1,11 @@
+import{c as t,j as n,L as d,i as u,n as h,w as p,q as m,s as k}from"./index-ByBtjZkE.js";import{C as f}from"./Card-DDFZkBks.js";import{I as v}from"./IconChevronRight-BzBcQLJQ.js";import{I}from"./IconSchool--XyGDw88.js";/**
+ * @license @tabler/icons-react v3.31.0 - MIT
+ *
+ * This source code is licensed under the MIT license.
+ * See the LICENSE file in the root directory of this source tree.
+ */var x=t("outline","alert-triangle","IconAlertTriangle",[["path",{d:"M12 9v4",key:"svg-0"}],["path",{d:"M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z",key:"svg-1"}],["path",{d:"M12 16h.01",key:"svg-2"}]]);/**
+ * @license @tabler/icons-react v3.31.0 - MIT
+ *
+ * This source code is licensed under the MIT license.
+ * See the LICENSE file in the root directory of this source tree.
+ */var g=t("outline","clipboard-check","IconClipboardCheck",[["path",{d:"M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2",key:"svg-0"}],["path",{d:"M9 3m0 2a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v0a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2z",key:"svg-1"}],["path",{d:"M9 14l2 2l4 -4",key:"svg-2"}]]);function M({label:s,value:e,sub:l,color:r="purple",to:i,onClick:c}){const o=j(s),a=n.jsxs(n.Fragment,{children:[n.jsx("div",{className:"kpi-icon","aria-hidden":"true",children:n.jsx(o,{size:23,stroke:1.8})}),n.jsx("span",{children:s}),n.jsx("strong",{children:e}),n.jsx("small",{children:l}),i&&n.jsx(v,{className:"kpi-arrow",size:18})]});return c?n.jsx("button",{type:"button",className:`card kpi clickable kpi-button ${r}`,onClick:c,children:a}):i?n.jsx(d,{className:`card kpi clickable ${r}`,to:i,children:a}):n.jsx(f,{className:`kpi ${r}`,children:a})}function j(s=""){const e=s.toLowerCase();return e.includes("customer")?u:e.includes("lost")||e.includes("alert")||e.includes("attention")||e.includes("overdue")?x:e.includes("academic")||e.includes("course")||e.includes("internship")?I:e.includes("project")||e.includes("business")?h:e.includes("task")||e.includes("follow-up")||e.includes("review")?g:e.includes("notification")||e.includes("unread")?p:e.includes("conversion")||e.includes("won")||e.includes("lead")?m:k}export{x as I,M as K};

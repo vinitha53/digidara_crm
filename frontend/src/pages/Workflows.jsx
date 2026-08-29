@@ -9,6 +9,7 @@ import Modal from "../components/UI/Modal.jsx";
 import Toast from "../components/UI/Toast.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { can } from "../permissions.js";
+import { sentenceCase } from "../utils/text.js";
 
 const statuses = ["any", "new", "contacted", "qualified", "won", "lost", "converted", "closed", "not_interested"];
 const sources = ["", "website", "chatbot", "whatsapp", "email", "inperson"];
@@ -188,7 +189,7 @@ export default function Workflows() {
     <Card>
       <div className="card-head">
         <div>
-          <h2>Workflow Automation</h2>
+          <h2>Workflow automation</h2>
           <small>Rule-based lead automation for assignment, notifications and messages.</small>
         </div>
         {can(user, "workflows", "manage") && <Button onClick={startCreate}><IconPlus size={16} /> New Rule</Button>}
@@ -199,7 +200,7 @@ export default function Workflows() {
     <Card>
       <div className="card-head">
         <div>
-          <h2>Run History</h2>
+          <h2>Run history</h2>
           <small>{selectedRule ? selectedRule.name : "Select a workflow rule"}</small>
         </div>
         {selectedRule && <Badge tone={selectedRule.is_active ? "teal" : "red"}>{selectedRule.is_active ? "Active" : "Disabled"}</Badge>}
@@ -222,10 +223,10 @@ export default function Workflows() {
         <label className="field wide"><span>Name</span><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
         <label className="field wide"><span>Description</span><textarea rows="2" value={form.description || ""} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
         <label className="field"><span>When status changes to</span><select value={form.trigger_config?.to_status || "any"} onChange={(e) => setForm({ ...form, trigger_config: { to_status: e.target.value } })}>{statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
-        <label className="field"><span>Only if source equals</span><select value={form.conditions?.source || ""} onChange={(e) => setForm({ ...form, conditions: e.target.value ? { source: e.target.value } : {} })}>{sources.map((source) => <option key={source || "any"} value={source}>{source || "Any source"}</option>)}</select></label>
+        <label className="field"><span>Only if the source is</span><select value={form.conditions?.source || ""} onChange={(e) => setForm({ ...form, conditions: e.target.value ? { source: e.target.value } : {} })}>{sources.map((source) => <option key={source || "any"} value={source}>{sentenceCase(source, "Any source")}</option>)}</select></label>
         <label className="field"><span>Active</span><select value={form.is_active ? "1" : "0"} onChange={(e) => setForm({ ...form, is_active: e.target.value === "1" })}><option value="1">Active</option><option value="0">Disabled</option></select></label>
         <div className="wide">
-          <div className="card-head compact"><h3>Actions</h3><Button type="button" variant="secondary" onClick={addAction}>Add Action</Button></div>
+          <div className="card-head compact"><h3>Actions</h3><Button type="button" variant="secondary" onClick={addAction}>Add action</Button></div>
           {form.actions.map((action, index) => <div className="mini-grid" key={`${action.type}-${index}`}>
             <label className="field"><span>Action</span><select value={action.type} onChange={(e) => updateAction(index, { type: e.target.value })}>
               <option value="assign_to_user">Assign to user</option>

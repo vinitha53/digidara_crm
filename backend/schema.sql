@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS leads (
     probability          TINYINT UNSIGNED NOT NULL DEFAULT 10,
     expected_close_date  DATE NULL,
     lost_reason          VARCHAR(255) NULL,
+    lost_reason_detail   TEXT NULL,
     assigned_to          INT UNSIGNED NULL,
     notes                TEXT NULL,
     ai_score             INT NULL,
@@ -997,6 +998,7 @@ CALL add_column_if_missing('leads', 'deal_value', 'INT NOT NULL DEFAULT 0');
 CALL add_column_if_missing('leads', 'probability', 'TINYINT UNSIGNED NOT NULL DEFAULT 10');
 CALL add_column_if_missing('leads', 'expected_close_date', 'DATE NULL');
 CALL add_column_if_missing('leads', 'lost_reason', 'VARCHAR(255) NULL');
+CALL add_column_if_missing('leads', 'lost_reason_detail', 'TEXT NULL');
 CALL add_column_if_missing('leads', 'assigned_to', 'INT UNSIGNED NULL');
 CALL add_column_if_missing('leads', 'ai_score', 'TINYINT UNSIGNED NULL');
 CALL add_column_if_missing('leads', 'ai_reason', 'TEXT NULL');
@@ -1034,11 +1036,23 @@ CALL add_column_if_missing('tasks', 'meeting_location', 'VARCHAR(255) NULL');
 -- owner-attention points, explicitly requested tables and calculation context remain available when a
 -- user reloads query history. Both points and tables use response_data JSON;
 -- no separate presentation-only database column is required.
+CALL add_column_if_missing('ai_interactions', 'model', 'VARCHAR(100) NULL');
+CALL add_column_if_missing('ai_interactions', 'status', 'VARCHAR(30) NOT NULL DEFAULT ''success''');
+CALL add_column_if_missing('ai_interactions', 'sources', 'VARCHAR(255) NULL');
 CALL add_column_if_missing('ai_interactions', 'response_format', 'VARCHAR(30) NOT NULL DEFAULT ''summary''');
 CALL add_column_if_missing('ai_interactions', 'response_data', 'JSON NULL');
 CALL add_column_if_missing('ai_interactions', 'row_count', 'INT UNSIGNED NOT NULL DEFAULT 0');
 CALL add_column_if_missing('ai_interactions', 'conversation_id', 'VARCHAR(64) NULL');
 CALL add_column_if_missing('ai_interactions', 'conversation_title', 'VARCHAR(160) NULL');
+
+-- Consolidate the retired AI Copilot permission key into the current AI Chat
+-- key without overwriting an already configured AI Chat permission.
+INSERT IGNORE INTO role_permissions (role, page_key, action, allowed, updated_by, updated_at)
+SELECT role, 'ai_chat', action, allowed, updated_by, updated_at
+FROM role_permissions
+WHERE page_key = 'ai_copilot';
+
+DELETE FROM role_permissions WHERE page_key = 'ai_copilot';
 
 UPDATE ai_interactions
 SET conversation_id = CONCAT('legacy-', id),
@@ -1151,6 +1165,50 @@ UPDATE leads
 SET program_duration = NULL
 WHERE lead_category != 'internship';
 
+-- Standardize historical free-text loss reasons for reliable dashboard
+-- grouping while retaining the original wording in lost_reason_detail.
+UPDATE leads
+SET lost_reason_detail = COALESCE(NULLIF(TRIM(lost_reason_detail), ''), NULLIF(TRIM(lost_reason), ''))
+WHERE status = 'lost'
+  AND lost_reason IS NOT NULL
+  AND TRIM(lost_reason) != ''
+  AND lost_reason NOT IN (
+      'Payment too high', 'Timing issue', 'Family issue', 'Chose a competitor',
+      'No response', 'Not interested', 'Not a good fit', 'Other'
+  );
+
+UPDATE leads
+SET lost_reason = CASE
+    WHEN lost_reason IS NULL OR TRIM(lost_reason) = '' THEN 'Other'
+    WHEN LOWER(TRIM(lost_reason)) IN (
+        'payment too high', 'timing issue', 'family issue', 'chose a competitor',
+        'no response', 'not interested', 'not a good fit', 'other'
+    ) THEN CASE LOWER(TRIM(lost_reason))
+        WHEN 'payment too high' THEN 'Payment too high'
+        WHEN 'timing issue' THEN 'Timing issue'
+        WHEN 'family issue' THEN 'Family issue'
+        WHEN 'chose a competitor' THEN 'Chose a competitor'
+        WHEN 'no response' THEN 'No response'
+        WHEN 'not interested' THEN 'Not interested'
+        WHEN 'not a good fit' THEN 'Not a good fit'
+        ELSE 'Other'
+    END
+    WHEN LOWER(lost_reason) REGEXP 'payment|price|pricing|cost|budget|expensive|fee' THEN 'Payment too high'
+    WHEN LOWER(lost_reason) REGEXP 'timing|not now|later|delay|schedule|busy' THEN 'Timing issue'
+    WHEN LOWER(lost_reason) REGEXP 'family|parent|personal reason' THEN 'Family issue'
+    WHEN LOWER(lost_reason) REGEXP 'competitor|another provider|other provider|alternative' THEN 'Chose a competitor'
+    WHEN LOWER(lost_reason) REGEXP 'no response|not responding|unresponsive|unreachable|no reply' THEN 'No response'
+    WHEN LOWER(lost_reason) REGEXP 'not interested|declined|changed mind' THEN 'Not interested'
+    WHEN LOWER(lost_reason) REGEXP 'not qualified|not a fit|not suitable|requirement mismatch|ineligible' THEN 'Not a good fit'
+    ELSE 'Other'
+END
+WHERE status = 'lost';
+
+UPDATE leads
+SET lost_reason = NULL,
+    lost_reason_detail = NULL
+WHERE status != 'lost';
+
 UPDATE leads
 SET source = CASE LOWER(source)
     WHEN 'website' THEN 'website'
@@ -1195,6 +1253,7 @@ CALL add_index_if_missing(
 );
 
 DROP PROCEDURE IF EXISTS sync_leads_status_check;
+DROP PROCEDURE IF EXISTS migrate_legacy_lead_assignments;
 DROP PROCEDURE IF EXISTS drop_check_if_exists;
 DROP PROCEDURE IF EXISTS modify_column_if_exists;
 DROP PROCEDURE IF EXISTS add_index_if_missing;
@@ -1230,7 +1289,7 @@ VALUES
 ON DUPLICATE KEY UPDATE
     label = VALUES(label), description = VALUES(description), is_system = 1, is_active = 1;
 
-DELETE FROM role_permissions WHERE page_key IN ('programs', 'projects');
+DELETE FROM role_permissions WHERE page_key IN ('programs', 'projects', 'support');
 
 INSERT IGNORE INTO role_permissions (role, page_key, action, allowed)
 VALUES
@@ -1240,10 +1299,12 @@ VALUES
     ('admin', 'tasks', 'view', 1), ('admin', 'tasks', 'create', 1), ('admin', 'tasks', 'update', 1), ('admin', 'tasks', 'delete', 1), ('admin', 'tasks', 'assign', 1), ('admin', 'tasks', 'complete', 1),
     ('admin', 'notifications', 'view', 1), ('admin', 'notifications', 'update', 1),
     ('admin', 'calendar', 'view', 1), ('admin', 'calendar', 'schedule', 1),
-    ('admin', 'support', 'view', 1), ('admin', 'support', 'create', 1), ('admin', 'support', 'update', 1), ('admin', 'support', 'assign', 1), ('admin', 'support', 'resolve', 1),
     ('admin', 'ai_chat', 'view', 1), ('admin', 'ai_chat', 'ask', 1),
+    ('admin', 'ai_followups', 'view', 1), ('admin', 'ai_followups', 'generate', 1), ('admin', 'ai_followups', 'send', 1), ('admin', 'ai_followups', 'run', 1),
+    ('admin', 'workflows', 'view', 1), ('admin', 'workflows', 'manage', 1),
     ('admin', 'campaigns', 'view', 1), ('admin', 'campaigns', 'create', 1), ('admin', 'campaigns', 'update', 1), ('admin', 'campaigns', 'send', 1), ('admin', 'campaigns', 'schedule', 1),
     ('admin', 'communication', 'view', 1), ('admin', 'communication', 'send', 1),
+    ('admin', 'whatsapp_messages', 'view', 1),
     ('admin', 'reports', 'view', 1), ('admin', 'reports', 'export', 1),
     ('admin', 'employees', 'view', 1), ('admin', 'employees', 'create', 1), ('admin', 'employees', 'update', 1), ('admin', 'employees', 'delete', 1),
     ('admin', 'settings', 'view', 1), ('admin', 'settings', 'update', 1), ('admin', 'settings', 'manage', 1),
@@ -1253,10 +1314,12 @@ VALUES
     ('staff', 'tasks', 'view', 1), ('staff', 'tasks', 'create', 1), ('staff', 'tasks', 'update', 1), ('staff', 'tasks', 'delete', 0), ('staff', 'tasks', 'assign', 0), ('staff', 'tasks', 'complete', 1),
     ('staff', 'notifications', 'view', 1), ('staff', 'notifications', 'update', 1),
     ('staff', 'calendar', 'view', 1), ('staff', 'calendar', 'schedule', 1),
-    ('staff', 'support', 'view', 1), ('staff', 'support', 'create', 1), ('staff', 'support', 'update', 1), ('staff', 'support', 'assign', 0), ('staff', 'support', 'resolve', 1),
     ('staff', 'ai_chat', 'view', 1), ('staff', 'ai_chat', 'ask', 1),
+    ('staff', 'ai_followups', 'view', 1), ('staff', 'ai_followups', 'generate', 1), ('staff', 'ai_followups', 'send', 1), ('staff', 'ai_followups', 'run', 0),
+    ('staff', 'workflows', 'view', 0), ('staff', 'workflows', 'manage', 0),
     ('staff', 'campaigns', 'view', 0), ('staff', 'campaigns', 'create', 0), ('staff', 'campaigns', 'update', 0), ('staff', 'campaigns', 'send', 0), ('staff', 'campaigns', 'schedule', 0),
     ('staff', 'communication', 'view', 1), ('staff', 'communication', 'send', 1),
+    ('staff', 'whatsapp_messages', 'view', 1),
     ('staff', 'reports', 'view', 0), ('staff', 'reports', 'export', 0),
     ('staff', 'employees', 'view', 0), ('staff', 'employees', 'create', 0), ('staff', 'employees', 'update', 0), ('staff', 'employees', 'delete', 0),
     ('staff', 'settings', 'view', 0), ('staff', 'settings', 'update', 0), ('staff', 'settings', 'manage', 0);

@@ -16,7 +16,7 @@ def like_term(term):
 
 def scoped(query, model, owner_field, assign_permission):
     user = current_user()
-    if has_permission(user, assign_permission[0], assign_permission[1]):
+    if user.role == "admin":
         return query
     return query.filter(owner_field == user.id)
 

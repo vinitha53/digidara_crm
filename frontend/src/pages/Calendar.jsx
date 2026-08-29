@@ -44,7 +44,7 @@ export default function Calendar() {
   const goToday = () => { setAnchor(startOfToday()); setMode("day"); setStatus("open"); };
 
   return <div className="page calendar-page">
-    <div className="calendar-page-head"><div><span>EXECUTION CALENDAR</span><h2>{can(user, "tasks", "assign") ? "Team due dates" : "My due dates"}</h2><p>Tasks and Calendar use the same assignments, due dates and completion status.</p></div><Link className="btn primary" to="/tasks"><IconListCheck size={17} />Manage tasks</Link></div>
+    <div className="calendar-page-head"><div><span>Execution calendar</span><h2>{can(user, "tasks", "assign") ? "Team due dates" : "My due dates"}</h2><p>Tasks and the calendar use the same assignments, due dates and completion statuses.</p></div><Link className="btn primary" to="/tasks"><IconListCheck size={17} />Manage tasks</Link></div>
 
     <div className="calendar-summary">
       <Link to="/tasks?view=today"><span>Due today</span><strong>{metrics.today}</strong></Link>

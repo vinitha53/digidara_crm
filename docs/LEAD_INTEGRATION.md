@@ -11,7 +11,27 @@ For production API-push deployment examples, see [API_PUSH_DEPLOYMENT.md](API_PU
 - Each external app sends a signed HTTPS request to the CRM.
 - CRM creates or updates a normal lead with `source=whatsapp`, `source=chatbot`, or `source=website`.
 - `source_system + external_id` prevents duplicate imports from the same external database.
+- CRM classifies every new or meaningfully changed lead as `hot`, `warm`, or `cold`. Notes and the latest customer message are the primary intent signal; the score, reason, factors, next action, and scoring timestamp are stored on the lead.
+- External apps must not assign the lead `tag`; CRM owns that field. If the configured LLM is unavailable, deterministic scoring stores a safe fallback result instead of losing the lead.
 - The Lead Dashboard reads from the CRM `leads` table, so external contacts must be pushed by API or synced from the bot database before they appear in dashboard totals.
+
+### Google Form registrations
+
+The registration Google Sheet can push signed submissions to the same lead endpoint with:
+
+```json
+{
+  "source_system": "google_form",
+  "source": "website",
+  "external_id": "google-form:<spreadsheet-id>:<sheet-id>:<row-number>",
+  "name": "Priya",
+  "phone": "919876543210",
+  "lead_category": "course",
+  "course_name": "GenAI Course"
+}
+```
+
+Add `google_form` to `INTEGRATION_ALLOWED_SOURCES`. The CRM stores the acquisition source as `website`, preserves `google_form` as the external system, and uses the external ID to make retries idempotent. No leads-table migration is required.
 
 ## CRM `.env`
 
@@ -74,6 +94,7 @@ After these values are configured, open the CRM WhatsApp Messages page and click
 - `service=WhatsApp Enquiry`
 
 Those synced records then appear in the Lead Dashboard, source reports, and `/leads?source=whatsapp`.
+The latest user message is copied into lead notes and immediately triggers reclassification when it changes.
 
 ## Website Database Pull Sync
 
@@ -107,6 +128,7 @@ Mapping:
 - `contact_inquiries` becomes CRM leads with `source=website`
 - Duplicate prevention uses `source_system + external_id`
 - Common columns such as `name`, `phone`, `email`, `message`, `course_name`, `service`, `created_at`, and `id` are detected automatically
+- Each created or meaningfully updated record is classified and stored before the sync response is returned
 
 For lead push API:
 
@@ -225,3 +247,40 @@ The next batch details and guidance can be shared today if you are available.
 
 Reply here and our team will help you with the next step.
 ```
+
+## WhatsApp Staff Lead Assignment Template
+
+Create this approved template in Meta WhatsApp Manager for notifying a staff member when a lead is assigned or reassigned:
+
+- Template name: `staff_lead_assignment`
+- Category: `UTILITY`
+- Language: `English`
+- Body:
+
+```text
+Hello {{1}}, a new lead has been assigned to you in Digidara CRM.
+
+Lead: {{2}}
+Interest: {{3}}
+Phone: {{4}}
+Priority: {{5}}
+
+Please log in to the CRM and follow up promptly.
+```
+
+Variables:
+
+- `{{1}}` = assigned staff name
+- `{{2}}` = lead name
+- `{{3}}` = course, internship, service, or project interest
+- `{{4}}` = lead phone number
+- `{{5}}` = lead priority/tag
+
+CRM environment:
+
+```env
+WHATSAPP_LEAD_ASSIGNMENT_TEMPLATE_NAME=staff_lead_assignment
+WHATSAPP_TEMPLATE_LANGUAGE=en
+```
+
+The CRM sends this template for new assignments and reassignments. Assigning a lead to the same staff member again does not send a duplicate message. Delivery attempts are retained in the message log.

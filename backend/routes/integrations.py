@@ -9,13 +9,14 @@ from sqlalchemy.exc import IntegrityError
 from extensions import db
 from models import ActivityLog, Lead
 from services.lead_acknowledgement_service import send_lead_acknowledgement
+from services.lead_scoring_service import lead_scoring_signature, rescore_if_changed
 
 bp = Blueprint("integrations", __name__, url_prefix="/api/integrations")
 
 SOURCES = {"website", "chatbot", "whatsapp", "email", "inperson"}
+SOURCE_SYSTEM_DEFAULTS = {"google_form": "website"}
 CATEGORIES = {"course", "internship", "business"}
 STATUSES = {"new", "contacted", "qualified", "won", "lost", "converted", "closed", "not_interested"}
-TAGS = {"new", "hot", "warm", "cold"}
 MAX_CLOCK_SKEW_SECONDS = 300
 
 
@@ -63,12 +64,14 @@ def normalize_payload(data):
     allowed_sources = current_app.config.get("INTEGRATION_ALLOWED_SOURCES") or ["whatsapp", "chatbot", "website"]
     if source_system not in allowed_sources:
         raise ValueError("Source system is not allowed")
-    source = source_system if source_system in SOURCES else "chatbot"
+    requested_source = clean(data.get("source")).lower()
+    source = requested_source if requested_source in SOURCES else SOURCE_SYSTEM_DEFAULTS.get(
+        source_system, source_system if source_system in SOURCES else "chatbot"
+    )
     category = clean(data.get("lead_category") or data.get("category") or "course").lower()
     if category not in CATEGORIES:
         category = "business" if clean(data.get("business_requirement") or data.get("business_name")) else "course"
     status = clean(data.get("status") or "new").lower()
-    tag = clean(data.get("tag") or "new").lower()
     lead = {
         "name": clean(data.get("name") or data.get("full_name") or "WhatsApp User"),
         "phone": clean(data.get("phone") or data.get("mobile") or data.get("whatsapp_number")),
@@ -83,7 +86,6 @@ def normalize_payload(data):
         "business_name": clean(data.get("business_name") or data.get("company")) or None,
         "business_requirement": clean(data.get("business_requirement")) or None,
         "source": source,
-        "tag": tag if tag in TAGS else "new",
         "status": status if status in STATUSES else "new",
         "notes": clean(data.get("notes") or data.get("message") or data.get("last_message")) or None,
         "city": clean(data.get("city")) or None,
@@ -153,8 +155,10 @@ def receive_lead():
         if is_new:
             lead = Lead()
             db.session.add(lead)
+        previous_scoring_signature = lead_scoring_signature(lead) if not is_new else None
         apply_lead_fields(lead, fields)
         db.session.flush()
+        rescore_if_changed(lead, previous_scoring_signature, force=is_new)
         if is_new:
             send_lead_acknowledgement(lead, send_email_copy=False)
         db.session.add(ActivityLog(

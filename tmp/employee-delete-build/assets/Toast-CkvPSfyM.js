@@ -1,0 +1,1 @@
+import{r as i,j as o}from"./index-Cx_zAQjw.js";function f({toast:e,duration:r=3e3}){const[t,s]=i.useState(!1);return i.useEffect(()=>{if(!e){s(!1);return}s(!0);const n=window.setTimeout(()=>s(!1),r);return()=>window.clearTimeout(n)},[e,r]),!e||!t?null:o.jsx("div",{className:`toast ${e.type||"info"}`,children:e.message})}export{f as T};

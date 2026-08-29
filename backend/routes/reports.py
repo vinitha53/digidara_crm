@@ -5,10 +5,31 @@ from flask import Blueprint, Response, jsonify, request
 from sqlalchemy import case, func, or_
 from extensions import db
 from models import ActivityLog, Customer, Lead, Task, User
-from .utils import permission_required
+from services.lost_reason_service import canonical_lost_reason
+from .utils import current_user, permission_required
 
 bp = Blueprint("reports", __name__, url_prefix="/api/reports")
 OPEN_STATUSES = ("new", "contacted", "qualified")
+
+
+def loss_reason_breakdown(query, total_lost, limit=None):
+    grouped = {}
+    rows = query.with_entities(Lead.lost_reason, func.count(Lead.id)).filter(
+        Lead.status == "lost"
+    ).group_by(Lead.lost_reason).all()
+    for reason, count in rows:
+        category = canonical_lost_reason(reason) or "Not specified"
+        grouped[category] = grouped.get(category, 0) + int(count or 0)
+    ordered = sorted(grouped.items(), key=lambda item: (-item[1], item[0]))
+    if limit:
+        ordered = ordered[:limit]
+    return [{
+        "id": name,
+        "key": name,
+        "name": name,
+        "count": count,
+        "share": round(count / max(total_lost, 1) * 100, 1),
+    } for name, count in ordered]
 
 
 def report_period(value):
@@ -78,9 +99,7 @@ def owner_report_data(period_value="90"):
         })
     sources.sort(key=lambda row: (row["conversion_rate"], row["leads"]), reverse=True)
 
-    normalized_reason = func.coalesce(func.nullif(func.trim(Lead.lost_reason), ""), "Not specified")
-    reason_rows = leads.with_entities(normalized_reason, func.count(Lead.id)).filter(Lead.status == "lost").group_by(normalized_reason).order_by(func.count(Lead.id).desc()).all()
-    loss_reasons = [{"id": name, "name": name, "count": int(count or 0), "share": round(int(count or 0) / max(lost, 1) * 100, 1)} for name, count in reason_rows]
+    loss_reasons = loss_reason_breakdown(leads, lost)
 
     trend_start = start or shift_month(today.replace(day=1), -11)
     month_cursor = trend_start.replace(day=1)
@@ -188,10 +207,14 @@ def owner_report():
 @bp.get("/owner-overview")
 @permission_required("dashboard", "view")
 def owner_overview():
+    user = current_user()
     today = date.today()
     month_start = today.replace(day=1)
     open_statuses = ["new", "contacted", "qualified"]
-    category_rows = db.session.query(
+    leads = Lead.query if user.role == "admin" else Lead.query.filter(Lead.assigned_to == user.id)
+    customers = Customer.query if user.role == "admin" else Customer.query.filter(Customer.assigned_to == user.id)
+    tasks = Task.query if user.role == "admin" else Task.query.filter(Task.assigned_to == user.id)
+    category_rows = leads.with_entities(
         Lead.lead_category,
         func.count(Lead.id),
         func.sum(case((Lead.status.in_(open_statuses), 1), else_=0)),
@@ -221,27 +244,34 @@ def owner_overview():
         for metric in ("total", "open", "won", "lost")
     }
     project = category_totals["project"]
-    total = Lead.query.count()
-    won = Lead.query.filter_by(status="won").count()
-    lost = Lead.query.filter_by(status="lost").count()
-    open_leads = Lead.query.filter(Lead.status.in_(open_statuses)).count()
-    unassigned = Lead.query.filter(Lead.assigned_to.is_(None), Lead.status.in_(open_statuses)).count()
+    total = leads.count()
+    won = leads.filter_by(status="won").count()
+    lost = leads.filter_by(status="lost").count()
+    open_leads = leads.filter(Lead.status.in_(open_statuses)).count()
+    unassigned = leads.filter(Lead.assigned_to.is_(None), Lead.status.in_(open_statuses)).count()
     stale_cutoff = today - timedelta(days=7)
-    stale = Lead.query.filter(Lead.status.in_(open_statuses), func.coalesce(Lead.last_contacted, Lead.created_at) < stale_cutoff).count()
-    overdue = Task.query.filter(Task.status != "done", Task.due_date < today).count()
+    stale = leads.filter(Lead.status.in_(open_statuses), func.coalesce(Lead.last_contacted, Lead.created_at) < stale_cutoff).count()
+    overdue = tasks.filter(Task.status != "done", Task.due_date < today).count()
+
+    try:
+        trend_months = int(request.args.get("trend_months", 6))
+    except (TypeError, ValueError):
+        trend_months = 6
+    if trend_months not in {3, 6, 12}:
+        trend_months = 6
 
     monthly_trend = []
-    for months_ago in range(5, -1, -1):
+    for months_ago in range(trend_months - 1, -1, -1):
         start = shift_month(month_start, -months_ago)
         end = shift_month(start, 1)
         monthly_trend.append({
             "name": start.strftime("%b"),
-            "leads": Lead.query.filter(Lead.created_at >= start, Lead.created_at < end).count(),
-            "won": Lead.query.filter(Lead.status == "won", Lead.updated_at >= start, Lead.updated_at < end).count(),
-            "lost": Lead.query.filter(Lead.status == "lost", Lead.updated_at >= start, Lead.updated_at < end).count(),
+            "leads": leads.filter(Lead.created_at >= start, Lead.created_at < end).count(),
+            "won": leads.filter(Lead.status == "won", Lead.updated_at >= start, Lead.updated_at < end).count(),
+            "lost": leads.filter(Lead.status == "lost", Lead.updated_at >= start, Lead.updated_at < end).count(),
         })
 
-    source_rows = db.session.query(
+    source_rows = leads.with_entities(
         Lead.source,
         func.count(Lead.id),
         func.sum(case((Lead.status == "won", 1), else_=0)),
@@ -257,15 +287,7 @@ def owner_overview():
     } for source, source_total, source_won, source_lost in source_rows]
     source_performance.sort(key=lambda item: (item["leads"], item["won"]), reverse=True)
 
-    normalized_reason = func.coalesce(func.nullif(func.trim(Lead.lost_reason), ""), "Not specified")
-    reason_rows = db.session.query(normalized_reason, func.count(Lead.id)).filter(
-        Lead.status == "lost"
-    ).group_by(normalized_reason).order_by(func.count(Lead.id).desc()).limit(6).all()
-    loss_reasons = [{
-        "name": reason,
-        "count": int(reason_count or 0),
-        "share": round(int(reason_count or 0) / max(lost, 1) * 100, 1),
-    } for reason, reason_count in reason_rows]
+    loss_reasons = loss_reason_breakdown(leads, lost, limit=6)
 
     pipeline_order = [
         ("new", "New"),
@@ -274,7 +296,7 @@ def owner_overview():
         ("won", "Won"),
         ("lost", "Lost"),
     ]
-    pipeline_counts = dict(db.session.query(Lead.status, func.count(Lead.id)).group_by(Lead.status).all())
+    pipeline_counts = dict(leads.with_entities(Lead.status, func.count(Lead.id)).group_by(Lead.status).all())
     pipeline_total = sum(int(pipeline_counts.get(key, 0) or 0) for key, _ in pipeline_order)
     pipeline_snapshot = [{
         "key": key,
@@ -301,17 +323,18 @@ def owner_overview():
         "project_conversion_rate": round(project["won"] / max(project["total"], 1) * 100, 1),
         "category_performance": list(category_totals.values()),
         "monthly_trend": monthly_trend,
+        "monthly_trend_months": trend_months,
         "source_performance": source_performance,
         "loss_reasons": loss_reasons,
         "pipeline_snapshot": pipeline_snapshot,
         "open_leads": open_leads,
-        "active_customers": Customer.query.filter_by(status="active").count(),
+        "active_customers": customers.filter_by(status="active").count(),
         "unassigned_leads": unassigned, "stale_leads": stale, "overdue_tasks": overdue,
         "attention_count": unassigned + stale + overdue,
-        "lost_this_month": Lead.query.filter(Lead.status == "lost", Lead.updated_at >= month_start).count(),
-        "tasks_today": Task.query.filter_by(due_date=today).filter(Task.status != "done").count(),
-        "completed_today": Task.query.filter(func.date(Task.completed_at) == today).count(),
-        "hot_leads": Lead.query.filter_by(tag="hot").filter(Lead.status.in_(open_statuses)).count(),
+        "lost_this_month": leads.filter(Lead.status == "lost", Lead.updated_at >= month_start).count(),
+        "tasks_today": tasks.filter_by(due_date=today).filter(Task.status != "done").count(),
+        "completed_today": tasks.filter(func.date(Task.completed_at) == today).count(),
+        "hot_leads": leads.filter_by(tag="hot").filter(Lead.status.in_(open_statuses)).count(),
     })
 
 
@@ -333,8 +356,8 @@ def category_demand():
 @bp.get("/lost-reasons")
 @permission_required("reports", "view")
 def lost_reasons():
-    rows = db.session.query(func.coalesce(Lead.lost_reason, "Not recorded"), func.count(Lead.id)).filter(Lead.status == "lost").group_by(Lead.lost_reason).order_by(func.count(Lead.id).desc()).all()
-    return jsonify([{"name": name, "value": count} for name, count in rows])
+    total = Lead.query.filter(Lead.status == "lost").count()
+    return jsonify([{"name": row["name"], "value": row["count"]} for row in loss_reason_breakdown(Lead.query, total)])
 
 @bp.get("/lead-aging")
 @permission_required("reports", "view")

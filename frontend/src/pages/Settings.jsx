@@ -190,8 +190,8 @@ export default function Settings() {
     <div className="page settings-page">
       <section className="settings-hero">
         <div>
-          <span className="eyebrow">ADMIN CONTROL CENTER</span>
-          <h2>CRM Settings</h2>
+          <span className="eyebrow">Administration control center</span>
+          <h2>CRM settings</h2>
           <p>Manage business choices, connected channels, automation rules and employee access from one place.</p>
         </div>
         <div className="settings-health">
@@ -307,7 +307,7 @@ export default function Settings() {
       {tab === "permissions" && mayManage && (
         <div className="permission-workspace">
           <aside className="role-selector">
-            <div><span className="eyebrow">ACCESS ROLES</span><h3>Choose a role</h3><p>Permissions apply to every active user assigned to that role.</p></div>
+            <div><span className="eyebrow">Access roles</span><h3>Choose a role</h3><p>Permissions apply to every active user assigned to that role.</p></div>
             <div className="role-selector-list">
               {permissionConfig.roles.map((role) => (
                 <button key={role.key} className={selectedRole === role.key ? "active" : ""} onClick={() => setSelectedRole(role.key)}>

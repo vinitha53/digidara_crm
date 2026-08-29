@@ -3,7 +3,11 @@ import re
 from flask import Blueprint, jsonify, request
 
 from extensions import db
-from models import Role, RolePermission, User
+from models import (
+    AIFollowUpHistory, AIInteraction, ActivityLog, Batch, Campaign, CommunicationSummary,
+    Customer, CustomerDocument, CustomerNote, Lead, LoginOtpChallenge, MeetingInvite,
+    MessageLog, Notification, Role, RolePermission, SavedView, Task, User, WorkflowRule,
+)
 from permissions import PERMISSION_PAGES, default_allowed, permission_role, serialize_permissions
 from .utils import admin_required, current_user, permission_required, update_model
 
@@ -70,6 +74,38 @@ def save_role_permissions(key, permissions=None, template="staff"):
 def valid_role_or_error(value):
     role = role_for(value)
     return role, None if role else (jsonify({"message": "Select an active CRM role."}), 400)
+
+
+def delete_employee_records(user_id):
+    """Physically remove a user while preserving non-personal CRM business records."""
+    Lead.query.filter_by(assigned_to=user_id).update({Lead.assigned_to: None}, synchronize_session=False)
+    Customer.query.filter_by(assigned_to=user_id).update({Customer.assigned_to: None}, synchronize_session=False)
+    Task.query.filter_by(assigned_to=user_id).update({Task.assigned_to: None}, synchronize_session=False)
+    Task.query.filter_by(created_by=user_id).update({Task.created_by: None}, synchronize_session=False)
+    Task.query.filter_by(related_type="employee", related_id=user_id).update(
+        {Task.related_id: None, Task.related_name: "Deleted employee"}, synchronize_session=False,
+    )
+    Campaign.query.filter_by(created_by=user_id).update({Campaign.created_by: None}, synchronize_session=False)
+    WorkflowRule.query.filter_by(created_by=user_id).update({WorkflowRule.created_by: None}, synchronize_session=False)
+    CommunicationSummary.query.filter_by(created_by=user_id).update({CommunicationSummary.created_by: None}, synchronize_session=False)
+    Batch.query.filter_by(mentor_id=user_id).update({Batch.mentor_id: None}, synchronize_session=False)
+    AIFollowUpHistory.query.filter_by(user_id=user_id).update({AIFollowUpHistory.user_id: None}, synchronize_session=False)
+    CustomerNote.query.filter_by(user_id=user_id).update({CustomerNote.user_id: None}, synchronize_session=False)
+    CustomerDocument.query.filter_by(user_id=user_id).update({CustomerDocument.user_id: None}, synchronize_session=False)
+    MeetingInvite.query.filter_by(user_id=user_id).update({MeetingInvite.user_id: None}, synchronize_session=False)
+    ActivityLog.query.filter_by(user_id=user_id).update({ActivityLog.user_id: None}, synchronize_session=False)
+    ActivityLog.query.filter_by(entity_type="employee", entity_id=user_id).update(
+        {ActivityLog.entity_id: None, ActivityLog.entity_name: "Deleted employee", ActivityLog.meta: None},
+        synchronize_session=False,
+    )
+    RolePermission.query.filter_by(updated_by=user_id).update({RolePermission.updated_by: None}, synchronize_session=False)
+
+    MessageLog.query.filter_by(recipient_type="employee", recipient_id=user_id).delete(synchronize_session=False)
+    CommunicationSummary.query.filter_by(recipient_type="employee", recipient_id=user_id).delete(synchronize_session=False)
+    Notification.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    SavedView.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    AIInteraction.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    LoginOtpChallenge.query.filter_by(user_id=user_id).delete(synchronize_session=False)
 
 
 @bp.get("/")
@@ -183,12 +219,14 @@ def update(id):
 
 @bp.delete("/<int:id>")
 @permission_required("employees", "delete")
-def deactivate(id):
+def delete_employee(id):
     user = User.query.get_or_404(id)
     if user.id == current_user().id:
-        return jsonify({"message": "You cannot deactivate your own account."}), 400
-    if user.role == "admin" and User.query.filter_by(role="admin", is_active=1).count() <= 1:
+        return jsonify({"message": "You cannot delete your own account."}), 400
+    if user.role == "admin" and user.is_active and User.query.filter_by(role="admin", is_active=1).count() <= 1:
         return jsonify({"message": "At least one active administrator is required."}), 400
-    user.is_active = 0
+    employee_name = user.name
+    delete_employee_records(user.id)
+    db.session.delete(user)
     db.session.commit()
-    return jsonify({"message": "Employee access deactivated."})
+    return jsonify({"message": f"{employee_name} was permanently deleted from the database."})

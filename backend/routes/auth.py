@@ -6,7 +6,7 @@ import secrets
 import uuid
 
 from flask import Blueprint, current_app, jsonify, request
-from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity, jwt_required
+from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt, get_jwt_identity, jwt_required
 from sqlalchemy import or_
 from extensions import db
 from models import LoginOtpChallenge, Role, User
@@ -92,9 +92,10 @@ def meta_message_id(result):
 
 def issue_tokens(user):
     user.last_login = datetime.utcnow()
+    claims = {"session_policy": current_app.config["JWT_SESSION_POLICY"]}
     return {
-        "access_token": create_access_token(identity=str(user.id)),
-        "refresh_token": create_refresh_token(identity=str(user.id)),
+        "access_token": create_access_token(identity=str(user.id), additional_claims=claims),
+        "refresh_token": create_refresh_token(identity=str(user.id), additional_claims=claims),
         "user": auth_user(user),
     }
 
@@ -102,6 +103,9 @@ def issue_tokens(user):
 @bp.post("/login")
 def login():
     data = request.get_json() or {}
+    login_type = str(data.get("login_type") or "").strip().lower()
+    if login_type not in {"admin", "staff"}:
+        return jsonify({"message": "Select Admin Login or Staff Login."}), 400
     login = data.get("email", "").strip().lower()
     user = User.query.filter(or_(User.email == login, User.login_id == login)).with_for_update().first()
     if (
@@ -110,6 +114,12 @@ def login():
         or not user.is_active
     ):
         return jsonify({"message": "Invalid credentials"}), 401
+
+    is_admin = user.role == "admin"
+    if login_type == "admin" and not is_admin:
+        return jsonify({"message": "This is a staff account. Please use Staff Login."}), 403
+    if login_type == "staff" and is_admin:
+        return jsonify({"message": "This is an administrator account. Please use Admin Login."}), 403
 
     if not user.otp_enabled:
         payload = issue_tokens(user)
@@ -253,4 +263,15 @@ def change_password():
 @bp.post("/refresh")
 @jwt_required(refresh=True)
 def refresh():
-    return jsonify({"access_token": create_access_token(identity=get_jwt_identity())})
+    user = db.session.get(User, int(get_jwt_identity()))
+    if not user or not user.is_active:
+        return jsonify({"message": "This session is no longer active. Please sign in again."}), 401
+    if get_jwt().get("session_policy") != current_app.config["JWT_SESSION_POLICY"]:
+        return jsonify({"message": "This session has expired under the updated security policy. Please sign in again."}), 401
+    # Rotate both tokens. Each successful renewal extends the session for an
+    # active user without weakening the short lifetime of access tokens.
+    claims = {"session_policy": current_app.config["JWT_SESSION_POLICY"]}
+    return jsonify({
+        "access_token": create_access_token(identity=str(user.id), additional_claims=claims),
+        "refresh_token": create_refresh_token(identity=str(user.id), additional_claims=claims),
+    })

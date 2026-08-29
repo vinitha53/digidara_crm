@@ -46,7 +46,7 @@ python seed.py
 python app.py
 ```
 
-The backend runs at `http://localhost:5000`.
+The backend runs at `http://localhost:5002`.
 
 `python seed.py` is safe to rerun. It refreshes demo login passwords and will not duplicate demo leads when data already exists.
 
@@ -80,7 +80,7 @@ npm run build
 After starting the backend, open:
 
 ```text
-http://localhost:5000/api/health
+http://localhost:5002/api/health
 ```
 
 Expected response:
@@ -123,7 +123,7 @@ Reply if you need clarification about this request.
 
 ## Environment
 
-Copy `.env.example` to `.env`, then add your real database and integration credentials. Never commit or share `.env`. Owner AI Chat calculates its answers directly from authorized CRM records and does not require an external model. `GROQ_API_KEY` and `GROQ_MODEL` remain available for AI follow-up generation and communication summarization; the configured default is `llama3-8b-8192`.
+Copy `.env.example` to `.env`, then add your real database and integration credentials. Never commit or share `.env`. AI Chat uses a read-only planner-query-synthesis flow: the configured model selects an authorized CRM query, the server retrieves current permission-scoped database data, and the model turns that observation into a grounded decision-support answer. If the model is unavailable, the deterministic CRM query engine remains available. Chat storage defaults to 30 conversations with 50 messages per conversation and can be adjusted with `AI_CHAT_MAX_CONVERSATIONS`, `AI_CHAT_MAX_MESSAGES_PER_CONVERSATION`, and `AI_CHAT_CONTEXT_MESSAGES`.
 
 ## API Documentation
 
@@ -157,7 +157,7 @@ See [CHANGELOG.md](CHANGELOG.md).
 - Focused Customer workspace with accurate full-dataset total/active/follow-up/contact-overdue views, academic/project segmentation, responsive cards, and a simplified Customer 360 profile
 - Drag-and-drop Lead Pipeline with category, priority, source, owner and lost-reason context; commercial value fields are intentionally omitted from the core Leads UI
 - Aligned lead filters for category, stage, source, city and interest with user saved views
-- Bulk lead actions, CSV lead import, duplicate lead detection, and CSV exports
+- Automatic lead intake from WhatsApp, website forms and chatbots, with source deduplication, AI classification from notes, and duplicate detection
 - Lead timeline from messages and CRM activity
 - Customer notes and customer document attachments
 - Support tickets with priority, SLA, assignment, and resolution tracking
@@ -187,7 +187,7 @@ See [CHANGELOG.md](CHANGELOG.md).
 - Custom employee access roles are persisted in the `roles` table and `role_permissions`; `backend/schema.sql` removes the legacy fixed-role CHECK constraints upgrade-safely so new role keys can be assigned to `users.role`. Rerun the schema for an existing MySQL database.
 - Owner Settings is organized around company/integration setup, controlled course/internship/project lead options, validated AI follow-up policies, and role-first access management. Administrator access is permanently protected; Staff/custom roles can be granted page and action permissions independently, non-view actions require page access, and every permission save records `updated_by`/`updated_at`. Integration secrets are write-only and are never returned by the settings API. Rerun `backend/schema.sql` on an existing MySQL database to add the permission audit columns/index.
 - The MySQL upgrade block safely detects the legacy `leads.assigned_to_id` column before migrating assignments, so the complete schema can be rerun on both old and current databases without MySQL error 1054.
-- Flask starts with the production-safe reloader/debug mode disabled by default. Set `FLASK_DEBUG=1` only for interactive development; `FLASK_HOST` and `FLASK_PORT` can override the default `127.0.0.1:5000` listener.
+- Flask starts with the production-safe reloader/debug mode disabled by default. Set `FLASK_DEBUG=1` only for interactive development; `FLASK_HOST` and `FLASK_PORT` can override the default `127.0.0.1:5002` listener.
 - Persistent light/dark theme toggle
 - Business-specific responsive Login artwork representing course enquiries, internships, client projects, customer relationships, team execution and CRM analytics, with theme-safe overlays and mobile-aware cropping
 - Official Digidara Technologies company logo is used consistently on Login, sidebar navigation and the browser tab

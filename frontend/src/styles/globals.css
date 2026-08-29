@@ -369,7 +369,7 @@ main { min-width: 0; }
   color: var(--primary);
   font-size: 11px;
   font-weight: 900;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .search-result strong {

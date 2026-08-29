@@ -10,8 +10,11 @@ import Toast from "../components/UI/Toast.jsx";
 import DataTable from "../components/shared/DataTable.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { can } from "../permissions.js";
+import { lostReasonOptions } from "../constants/leadOptions.js";
+import { sentenceCase } from "../utils/text.js";
 
 const statuses = ["new", "contacted", "qualified", "won", "lost", "closed"];
+const KANBAN_INITIAL_RECORDS = 10;
 const statusLabels = {
   new: "New",
   contacted: "Contacted",
@@ -53,12 +56,15 @@ const emptyLead = {
   probability: 10,
   expected_close_date: "",
   lost_reason: "",
+  lost_reason_detail: "",
   source: "website",
+  assigned_to: "",
   notes: "",
 };
 const emptyAdvanced = {
   search: "",
   source: "",
+  lost_reason: "",
   city: "",
   service: "",
   tag: "",
@@ -85,8 +91,7 @@ export default function Leads() {
   const [resultTotal, setResultTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState([]);
-  const [importOpen, setImportOpen] = useState(false);
-  const [importCsv, setImportCsv] = useState("");
+  const [syncingSources, setSyncingSources] = useState(false);
   const [duplicates, setDuplicates] = useState([]);
   const [leadTimeline, setLeadTimeline] = useState([]);
   const [followupData, setFollowupData] = useState({ history: [] });
@@ -96,6 +101,8 @@ export default function Leads() {
   const [savedViews, setSavedViews] = useState([]);
   const [viewName, setViewName] = useState("");
   const [view, setView] = useState("table");
+  const [expandedPipelineStages, setExpandedPipelineStages] = useState({});
+  const [bulkLostOpen, setBulkLostOpen] = useState(false);
   const [drawer, setDrawer] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
   const [messageOpen, setMessageOpen] = useState(false);
@@ -107,7 +114,9 @@ export default function Leads() {
   const [courseOptions, setCourseOptions] = useState(defaultCourses);
   const [internshipOptions, setInternshipOptions] = useState(defaultInternships);
   const [businessServices, setBusinessServices] = useState(defaultBusinessServices);
+  const [assignees, setAssignees] = useState([]);
   const [toast, setToast] = useState(null);
+  const canAssignLead = can(user, "leads", "assign");
   const categoryFilter = categoryFromSearch(searchParams);
   const filter = statusFromSearch(searchParams);
   const perPage = view === "table" ? 20 : 200;
@@ -153,6 +162,10 @@ export default function Leads() {
   }, [searchParams]);
 
   useEffect(() => {
+    setExpandedPipelineStages({});
+  }, [filterQueryKey]);
+
+  useEffect(() => {
     api.get("/settings/lead-options")
       .then(({ data }) => {
         setCourseOptions(parseOptions(data.course_name_options, defaultCourses));
@@ -174,6 +187,13 @@ export default function Leads() {
       })
       .catch(() => setSavedViews([]));
   }, []);
+
+  useEffect(() => {
+    if (!canAssignLead) return;
+    api.get("/leads/assignees")
+      .then(({ data }) => setAssignees(data))
+      .catch(() => setToast({ type: "error", message: "Could not load staff list" }));
+  }, [canAssignLead]);
 
   const pipelineMetrics = useMemo(() => statuses.reduce((acc, status) => {
     const rows = leads.filter((lead) => lead.status === status);
@@ -248,13 +268,13 @@ export default function Leads() {
 
   const openAdd = () => {
     setEditing(null);
-    setForm(emptyLead);
+    setForm({ ...emptyLead, assigned_to: canAssignLead ? "" : String(user?.id || "") });
     setFormOpen(true);
   };
 
   const openEdit = (lead) => {
     setEditing(lead);
-    setForm({ ...emptyLead, ...lead });
+    setForm({ ...emptyLead, ...lead, assigned_to: String(lead.assigned_to || (canAssignLead ? "" : user?.id || "")) });
     setDrawer(null);
     setFormOpen(true);
   };
@@ -271,7 +291,11 @@ export default function Leads() {
     const data = { ...form };
     data.deal_value = Number(data.deal_value || 0);
     data.probability = Number(data.probability || 0);
-    if (data.status !== "lost") data.lost_reason = "";
+    data.assigned_to = data.assigned_to ? Number(data.assigned_to) : null;
+    if (data.status !== "lost") {
+      data.lost_reason = "";
+      data.lost_reason_detail = "";
+    }
     if (data.lead_category === "course") {
       data.service = data.course_name || "Course Enquiry";
       data.program_duration = "";
@@ -304,7 +328,7 @@ export default function Leads() {
       setToast({ type: "success", message: editing ? "Lead updated" : "Lead added and acknowledgement queued" });
       setFormOpen(false);
       load();
-    }).catch(() => setToast({ type: "error", message: "Lead save failed" }));
+    }).catch((error) => setToast({ type: "error", message: error.response?.data?.message || "Lead save failed" }));
   };
 
   const sendMessage = (e) => {
@@ -360,9 +384,13 @@ export default function Leads() {
 
   const moveLeadStatus = (lead, status) => {
     if (!can(user, "leads", "update") || lead.status === status) return;
+    if (status === "lost") {
+      openEdit({ ...lead, status: "lost", lost_reason: "", lost_reason_detail: "" });
+      setToast({ type: "info", message: "Choose why this lead was lost before saving." });
+      return;
+    }
     const body = { status };
     if (status === "won") body.probability = 100;
-    if (status === "lost") body.lost_reason = lead.lost_reason || "Moved to lost from pipeline";
     api.put(`/leads/${lead.id}`, body)
       .then(({ data }) => {
         setLeads(leads.map((item) => item.id === data.id ? data : item));
@@ -380,29 +408,34 @@ export default function Leads() {
     }).catch(() => setToast({ type: "error", message: "Delete failed" }));
   };
 
-  const bulk = (action, value) => {
+  const bulk = (action, value, lostReason = "") => {
     if (!selectedIds.length) return;
-    api.post("/leads/bulk", { ids: selectedIds, action, value })
+    api.post("/leads/bulk", { ids: selectedIds, action, value, lost_reason: lostReason })
       .then(({ data }) => {
         setToast({ type: "success", message: `${data.updated} leads updated` });
+        setBulkLostOpen(false);
         load();
       })
-      .catch(() => setToast({ type: "error", message: "Bulk action failed" }));
+      .catch((error) => setToast({ type: "error", message: error.response?.data?.message || "Bulk action failed" }));
   };
 
-  const importLeads = (event) => {
-    event.preventDefault();
-    api.post("/leads/import", { csv: importCsv })
-      .then(({ data }) => {
-        setToast({ type: "success", message: `${data.created} leads imported, ${data.skipped.length} skipped` });
-        setImportOpen(false);
-        setImportCsv("");
-        load();
-      })
-      .catch(() => setToast({ type: "error", message: "Import failed" }));
+  const syncConnectedSources = () => {
+    setSyncingSources(true);
+    Promise.allSettled([
+      api.post("/communication/sync-whatsapp-leads"),
+      api.post("/external-sources/sync-website-leads"),
+    ]).then((results) => {
+      const completed = results.filter((result) => result.status === "fulfilled");
+      if (!completed.length) throw new Error("No connected source could be reached");
+      const totals = completed.reduce((summary, result) => ({
+        created: summary.created + Number(result.value.data.created || 0),
+        updated: summary.updated + Number(result.value.data.updated || 0),
+      }), { created: 0, updated: 0 });
+      setToast({ type: "success", message: `${totals.created} new and ${totals.updated} updated leads synchronized` });
+      load();
+    }).catch(() => setToast({ type: "error", message: "Connected lead sources are unavailable" }))
+      .finally(() => setSyncingSources(false));
   };
-
-  const exportLeads = () => downloadCsv("/leads/export", "leads.csv");
 
   const findDuplicates = () => {
     api.get("/leads/duplicates")
@@ -481,9 +514,9 @@ export default function Leads() {
   return (
     <div className="page leads-page">
       <section className="lead-workspace-head">
-        <div><span>LEAD WORKSPACE</span><h2>Course, internship and project enquiries</h2><p>Move every enquiry from first contact to a clear outcome.</p></div>
+        <div><span>Lead workspace</span><h2>Course, internship and project enquiries</h2><p>Move every enquiry from first contact to a clear outcome.</p></div>
         <div className="lead-workspace-total"><strong>{overview.total}</strong><span>Total leads</span></div>
-        {can(user, "leads", "create") && <Button onClick={openAdd}><IconPlus size={17} />Add Lead</Button>}
+        {can(user, "leads", "create") && <Button onClick={openAdd}><IconPlus size={17} />Add lead</Button>}
       </section>
 
       <nav className="lead-segment-tabs" aria-label="Lead category">
@@ -502,15 +535,17 @@ export default function Leads() {
       </section>
 
       <div className="lead-utility-actions">
-        <button type="button" onClick={exportLeads}>Export</button>
+        {can(user, "leads", "create") && <button type="button" onClick={syncConnectedSources} disabled={syncingSources}>{syncingSources ? "Synchronizing..." : "Sync connected sources"}</button>}
         <button type="button" onClick={findDuplicates}>Find duplicates</button>
         {can(user, "leads", "classify") && <button type="button" onClick={scoreAll}>AI rescore</button>}
       </div>
 
       {selectedCount > 0 && <Card className="lead-bulk-bar">
         <strong>{selectedCount} lead{selectedCount === 1 ? "" : "s"} selected</strong>
-        <select onChange={(e) => e.target.value && bulk("status", e.target.value)} defaultValue=""><option value="">Change stage</option>{statuses.map((x) => <option key={x} value={x}>{statusLabels[x]}</option>)}</select>
-        <select onChange={(e) => e.target.value && bulk("tag", e.target.value)} defaultValue=""><option value="">Change priority</option>{["new", "hot", "warm", "cold"].map((x) => <option key={x}>{x}</option>)}</select>
+        <select onChange={(e) => { if (e.target.value === "lost") setBulkLostOpen(true); else if (e.target.value) bulk("status", e.target.value); e.target.value = ""; }} defaultValue=""><option value="">Change stage</option>{statuses.map((x) => <option key={x} value={x}>{statusLabels[x]}</option>)}</select>
+        {bulkLostOpen && <select aria-label="Why Lost category for selected leads" defaultValue="" onChange={(e) => e.target.value && bulk("status", "lost", e.target.value)}><option value="">Choose why lost</option>{lostReasonOptions.filter((reason) => reason !== "Other").map((reason) => <option value={reason} key={reason}>{reason}</option>)}</select>}
+        <select onChange={(e) => e.target.value && bulk("tag", e.target.value)} defaultValue=""><option value="">Change priority</option>{["new", "hot", "warm", "cold"].map((x) => <option key={x}>{sentenceCase(x)}</option>)}</select>
+        {canAssignLead && <select onChange={(e) => e.target.value && bulk("assign", e.target.value)} defaultValue=""><option value="">Assign staff</option>{assignees.map((staff) => <option value={staff.id} key={staff.id}>{staff.name}</option>)}</select>}
         {can(user, "leads", "delete") && <button className="danger-btn" onClick={() => bulk("delete")}>Delete selected</button>}
       </Card>}
 
@@ -519,7 +554,7 @@ export default function Leads() {
       {advancedOpen && <Card className="filter-panel">
         <div className="filter-head">
           <div>
-            <h2>Filter Leads</h2>
+            <h2>Filter leads</h2>
             <span>Combine filters, then apply them together.</span>
           </div>
           <button type="button" className="ghost-action compact" onClick={clearMoreFilters} disabled={!appliedFilterCount && !advancedFilterKeys.some((key) => advanced[key])}>Clear filters</button>
@@ -527,7 +562,8 @@ export default function Leads() {
         <div className="lead-filter-grid">
           <label className="field filter-search"><span>Search</span><input value={advanced.search} onChange={(e) => setAdvancedField("search", e.target.value)} placeholder="Name, phone or email" /></label>
           <label className="field"><span>Source</span><select value={advanced.source} onChange={(e) => setAdvancedField("source", e.target.value)}><option value="">All sources</option>{sources.map((x) => <option value={x.value} key={x.value}>{x.label}</option>)}</select></label>
-          <label className="field"><span>Priority</span><select value={advanced.tag} onChange={(e) => setAdvancedField("tag", e.target.value)}><option value="">All priorities</option>{["new", "hot", "warm", "cold"].map((value) => <option value={value} key={value}>{value}</option>)}</select></label>
+          <label className="field"><span>Priority</span><select value={advanced.tag} onChange={(e) => setAdvancedField("tag", e.target.value)}><option value="">All priorities</option>{["new", "hot", "warm", "cold"].map((value) => <option value={value} key={value}>{sentenceCase(value)}</option>)}</select></label>
+          <label className="field"><span>Why Lost</span><select value={advanced.lost_reason} onChange={(e) => setAdvancedField("lost_reason", e.target.value)}><option value="">All loss categories</option>{lostReasonOptions.map((reason) => <option value={reason} key={reason}>{reason}</option>)}</select></label>
           <label className="field"><span>City</span><input value={advanced.city} onChange={(e) => setAdvancedField("city", e.target.value)} placeholder="Any city" /></label>
           <label className="field"><span>Course, internship or service</span><input value={advanced.service} onChange={(e) => setAdvancedField("service", e.target.value)} placeholder="Any interest" /></label>
           <label className="field"><span>Minimum deal value</span><input type="number" min="0" value={advanced.min_value} onChange={(e) => setAdvancedField("min_value", e.target.value)} placeholder="No minimum" /></label>
@@ -555,7 +591,13 @@ export default function Leads() {
         </section>
       ) : (
         <div className="pipeline-board">
-          {statuses.map((status) => <section
+          {statuses.map((status) => {
+            const stageLeads = leads.filter((lead) => lead.status === status);
+            const isExpanded = Boolean(expandedPipelineStages[status]);
+            const visibleLeads = isExpanded ? stageLeads : stageLeads.slice(0, KANBAN_INITIAL_RECORDS);
+            const remainingCount = stageLeads.length - visibleLeads.length;
+
+            return <section
             className="pipeline-column"
             key={status}
             onDragOver={(event) => event.preventDefault()}
@@ -573,7 +615,7 @@ export default function Leads() {
               </div>
               <Badge tone={status === "won" ? "teal" : status === "lost" ? "red" : "purple"}>{pipelineMetrics[status]?.count || 0}</Badge>
             </div>
-            {leads.filter((lead) => lead.status === status).map((lead) => <article
+            {visibleLeads.map((lead) => <article
               className="kanban-card deal-card"
               draggable={can(user, "leads", "update")}
               key={lead.id}
@@ -589,13 +631,23 @@ export default function Leads() {
               <small>{lead.phone} · {lead.assigned_name || "Unassigned"}</small>
               {lead.status === "lost" && <small>Reason: {lead.lost_reason || "Not specified"}</small>}
             </article>)}
-            {!leads.filter((lead) => lead.status === status).length && <div className="pipeline-empty">No leads in this stage</div>}
-          </section>)}
+            {!stageLeads.length && <div className="pipeline-empty">No leads in this stage</div>}
+            {remainingCount > 0 && <button
+              type="button"
+              className="pipeline-show-more"
+              onClick={() => setExpandedPipelineStages((current) => ({ ...current, [status]: true }))}
+              aria-label={`Show ${remainingCount} more ${statusLabels[status]} leads`}
+            >
+              <span>Show More</span>
+              <small>{remainingCount} more lead{remainingCount === 1 ? "" : "s"}</small>
+            </button>}
+          </section>;
+          })}
         </div>
       )}
 
       <Drawer open={formOpen} title={editing ? "Edit Lead" : "Add Lead"} onClose={() => setFormOpen(false)}>
-        <LeadForm form={form} set={set} save={save} editing={editing} onCancel={() => setFormOpen(false)} courseOptions={courseOptions} internshipOptions={internshipOptions} businessServices={businessServices} canConvert={can(user, "leads", "convert")} />
+        <LeadForm form={form} set={set} save={save} editing={editing} onCancel={() => setFormOpen(false)} courseOptions={courseOptions} internshipOptions={internshipOptions} businessServices={businessServices} canConvert={can(user, "leads", "convert")} canAssign={canAssignLead} assignees={assignees} />
       </Drawer>
 
       <Drawer open={messageOpen} title={`Send ${messageChannel}`} onClose={() => setMessageOpen(false)}>
@@ -615,14 +667,6 @@ export default function Leads() {
         </form>}
       </Drawer>
 
-      <Drawer open={importOpen} title="Import Leads" onClose={() => setImportOpen(false)}>
-        <form className="lead-form" onSubmit={importLeads}>
-          <p>Paste CSV with headers: name, phone, email, company, service, lead_category, source, tag, status, city, notes.</p>
-          <label className="field wide"><span>CSV Content</span><textarea rows={12} value={importCsv} onChange={(e) => setImportCsv(e.target.value)} placeholder="name,phone,email,service&#10;Priya,+91...,priya@example.com,GenAI Course" required /></label>
-          <div className="composer-actions"><button type="button" className="ghost-action" onClick={() => setImportOpen(false)}>Cancel</button><Button>Import</Button></div>
-        </form>
-      </Drawer>
-
       <Drawer open={drawer} title={drawer?.name} onClose={() => setDrawer(null)}>
         {drawer && <div className="detail">
           <Badge tone={drawer.lead_category === "business" ? "teal" : "purple"}>{categoryLabel(drawer.lead_category)}</Badge>
@@ -631,7 +675,8 @@ export default function Leads() {
           <p><strong>Interest:</strong> {interestName(drawer)}</p>
           <p><strong>Source:</strong> {sourceLabel(drawer.source)}</p>
           <p><strong>Assigned Staff:</strong> {drawer.assigned_name || "Unassigned"}</p>
-          {drawer.status === "lost" && <p><strong>Lost Reason:</strong> {drawer.lost_reason || "-"}</p>}
+          {drawer.status === "lost" && <p><strong>Why Lost:</strong> {drawer.lost_reason || "-"}</p>}
+          {drawer.status === "lost" && drawer.lost_reason_detail && <p><strong>Loss Details:</strong> {drawer.lost_reason_detail}</p>}
           {drawer.lead_category !== "business" && <p><strong>Qualification:</strong> {drawer.qualification || "-"}</p>}
           {drawer.lead_category === "internship" && <p><strong>Internship Duration:</strong> {drawer.program_duration || "-"}</p>}
           {drawer.lead_category === "business" && <p><strong>Client / Company:</strong> {drawer.business_name || drawer.company || "-"}</p>}
@@ -649,10 +694,10 @@ export default function Leads() {
             {can(user, "leads", "delete") && <button className="danger-btn" onClick={() => remove(drawer)}>Delete</button>}
           </div>
           <div className="customer-section relation-list">
-            <h3>AI Follow-up Automation</h3>
+            <h3>AI follow-up automation</h3>
             <div className="customer-facts">
               <div><span>Status</span><strong>{drawer.ai_followup_enabled ? "Active" : "Paused"}</strong></div>
-              <div><span>Temperature</span><strong>{drawer.tag || "-"}</strong></div>
+              <div><span>Temperature</span><strong>{sentenceCase(drawer.tag, "-")}</strong></div>
               <div><span>Last Follow-up</span><strong>{drawer.ai_last_followup_at?.slice(0, 10) || "-"}</strong></div>
               <div><span>Next Follow-up</span><strong>{drawer.ai_next_followup_at?.slice(0, 10) || "-"}</strong></div>
               <div><span>Sent</span><strong>{drawer.ai_followup_count || 0}</strong></div>
@@ -666,13 +711,13 @@ export default function Leads() {
               {can(user, "leads", "update") && <button className="ghost-action" onClick={markManualFollowup}>Mark Manual Follow-up</button>}
             </div>
             {(followupData.history || []).slice(0, 6).map((item) => <div key={item.id}>
-              <strong>{item.status} - {item.delivery_status}</strong>
+              <strong>{sentenceCase(item.status)} - {sentenceCase(item.delivery_status)}</strong>
               <span>{item.sent_at || item.created_at}</span>
               <p>{item.edited_message || item.generated_message || item.skip_reason || "-"}</p>
             </div>)}
           </div>
           <div className="customer-section timeline-list">
-            <h3>Lead Timeline</h3>
+            <h3>Lead timeline</h3>
             {leadTimeline.map((item, index) => <div key={`${item.kind}-${index}`}><Badge>{item.kind}</Badge><strong>{item.title}</strong><span>{item.timestamp || "-"}</span><p>{item.body || "-"}</p></div>)}
             {!leadTimeline.length && <div className="empty compact-empty">No timeline yet.</div>}
           </div>
@@ -684,7 +729,7 @@ export default function Leads() {
   );
 }
 
-function LeadForm({ form, set, save, editing, onCancel, courseOptions, internshipOptions, businessServices, canConvert }) {
+function LeadForm({ form, set, save, editing, onCancel, courseOptions, internshipOptions, businessServices, canConvert, canAssign, assignees }) {
   const isBusiness = form.lead_category === "business";
   const visibleCategories = editing ? categories.filter((item) => item.value === form.lead_category) : categories;
   return (
@@ -693,7 +738,7 @@ function LeadForm({ form, set, save, editing, onCancel, courseOptions, internshi
         <div className="lead-form-icon">{iconFor(form.lead_category)}</div>
         <div>
           <strong>{editing ? "Update Lead Profile" : "Create New Lead"}</strong>
-          <span>Choose the lead type, capture the right details, then save the status and tag.</span>
+          <span>Capture accurate details and notes. AI assigns the hot, warm or cold priority after saving.</span>
         </div>
       </div>
 
@@ -702,7 +747,7 @@ function LeadForm({ form, set, save, editing, onCancel, courseOptions, internshi
       </div>
 
       <div className="form-section wide">
-        <h3>Contact Information</h3>
+        <h3>Contact information</h3>
         <div className="lead-form-grid">
           <label className="field"><span>Name</span><input value={form.name || ""} onChange={(e) => set("name", e.target.value)} required /></label>
           <label className="field"><span>Phone Number</span><input value={form.phone || ""} onChange={(e) => set("phone", e.target.value)} required /></label>
@@ -723,12 +768,13 @@ function LeadForm({ form, set, save, editing, onCancel, courseOptions, internshi
       </div>
 
       <div className="form-section wide">
-        <h3>Lead Stage</h3>
+        <h3>Lead stage</h3>
         <div className="lead-form-grid">
-          <label className="field"><span>Lead Tag</span><select value={form.tag || "new"} onChange={(e) => set("tag", e.target.value)}><option value="new">New</option><option value="hot">Hot</option><option value="warm">Warm</option><option value="cold">Cold</option></select></label>
           <label className="field"><span>Status</span><select value={form.status || "new"} onChange={(e) => set("status", e.target.value)}><option value="new">New</option><option value="contacted">Contacted</option><option value="qualified">Qualified</option>{canConvert && <option value="won">Won</option>}<option value="lost">Lost</option><option value="closed">Closed</option><option value="not_interested">Not Interested</option></select></label>
           <label className="field"><span>Source</span><select value={form.source || "website"} onChange={(e) => set("source", e.target.value)}>{sources.map((x) => <option value={x.value} key={x.value}>{x.label}</option>)}</select></label>
-          {(form.status || "new") === "lost" && <label className="field wide"><span>Lost Reason</span><input value={form.lost_reason || ""} onChange={(e) => set("lost_reason", e.target.value)} placeholder="Budget, timing, competitor, no response..." /></label>}
+          {canAssign && <label className="field"><span>Assigned Staff</span><select value={form.assigned_to || ""} onChange={(e) => set("assigned_to", e.target.value)} required><option value="">Select staff member</option>{assignees.map((staff) => <option value={staff.id} key={staff.id}>{staff.name}{staff.department ? ` - ${staff.department}` : ""}</option>)}</select></label>}
+          {(form.status || "new") === "lost" && <label className="field wide"><span>Why Lost</span><select value={form.lost_reason || ""} onChange={(e) => { set("lost_reason", e.target.value); if (e.target.value !== "Other") set("lost_reason_detail", ""); }} required><option value="">Choose a loss category</option>{lostReasonOptions.map((reason) => <option value={reason} key={reason}>{reason}</option>)}</select></label>}
+          {(form.status || "new") === "lost" && form.lost_reason === "Other" && <label className="field wide"><span>Why Lost Details</span><textarea value={form.lost_reason_detail || ""} onChange={(e) => set("lost_reason_detail", e.target.value)} placeholder="Briefly explain why this lead was lost" required /></label>}
           <label className="field wide"><span>Notes</span><textarea value={form.notes || ""} onChange={(e) => set("notes", e.target.value)} /></label>
         </div>
       </div>
@@ -797,15 +843,4 @@ function iconFor(category) {
   if (category === "internship") return <IconUserCheck size={18} />;
   if (category === "business") return <IconBriefcase size={18} />;
   return <IconSchool size={18} />;
-}
-
-function downloadCsv(path, filename) {
-  api.get(path, { responseType: "blob" }).then((response) => {
-    const url = URL.createObjectURL(response.data);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
-  });
 }

@@ -47,6 +47,7 @@ class AppErrorBoundary extends Component {
             <span>Clear the browser cache or sign in again. The app is still running.</span>
             <button onClick={() => {
               localStorage.removeItem("access_token");
+              localStorage.removeItem("refresh_token");
               localStorage.removeItem("user");
               location.href = "/login";
             }}>Return to login</button>

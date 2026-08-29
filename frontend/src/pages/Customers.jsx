@@ -9,6 +9,7 @@ import KpiCard from "../components/UI/KpiCard.jsx";
 import Toast from "../components/UI/Toast.jsx";
 import DataTable from "../components/shared/DataTable.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { sentenceCase } from "../utils/text.js";
 import { can } from "../permissions.js";
 
 const emptyOverview = { total: 0, active: 0, followup: 0, contact_overdue: 0, segments: {} };
@@ -160,7 +161,7 @@ export default function Customers() {
           {tab360 === "activity" && <div className="customer-section timeline-list">{(customer360?.timeline || []).map((item, index) => <div key={`${item.kind}-${index}`}><Badge>{item.kind}</Badge><strong>{item.title}</strong><span>{formatDateTime(item.timestamp)}</span><p>{item.body || "-"}</p></div>)}{!customer360?.timeline?.length && <div className="empty compact-empty">No activity yet.</div>}</div>}
 
           {tab360 === "work" && <div className="customer-section relation-list">
-            <h3>Open work</h3>{(customer360?.tasks || []).map((task) => <div key={task.id}><strong>{task.title}</strong><span>{task.status} · {task.priority} · {task.due_date ? formatDate(task.due_date) : "No due date"}</span><p>{task.notes || "-"}</p></div>)}{!customer360?.tasks?.length && <div className="empty compact-empty">No customer tasks yet.</div>}
+            <h3>Open work</h3>{(customer360?.tasks || []).map((task) => <div key={task.id}><strong>{task.title}</strong><span>{sentenceCase(task.status)} · {sentenceCase(task.priority)} · {task.due_date ? formatDate(task.due_date) : "No due date"}</span><p>{task.notes || "-"}</p></div>)}{!customer360?.tasks?.length && <div className="empty compact-empty">No customer tasks yet.</div>}
             {can(user, "customers", "update") && <form className="form-grid customer-note-form" onSubmit={addNote}><label className="field"><span>Note type</span><select value={noteForm.note_type} onChange={(event) => setNoteForm({ ...noteForm, note_type: event.target.value })}><option value="general">General</option><option value="call">Call</option><option value="meeting">Meeting</option><option value="risk">Risk</option><option value="success">Success</option></select></label><label className="field wide"><span>New note</span><textarea value={noteForm.note} onChange={(event) => setNoteForm({ ...noteForm, note: event.target.value })} required /></label><Button>Add note</Button></form>}
             <h3>Notes</h3>{(customer360?.notes || []).map((note) => <div key={note.id}><strong>{note.note_type} · {note.user_name || "CRM"}</strong><span>{formatDateTime(note.created_at)}</span><p>{note.note}</p></div>)}
           </div>}

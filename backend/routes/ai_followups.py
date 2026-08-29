@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, has_request_context, jsonify, request
+from sqlalchemy import or_
 from extensions import db
 from models import AIFollowUpHistory, AIFollowUpPromptLog, ActivityLog, CompanySettings, Customer, Lead, MessageLog, Task
 from permissions import has_permission
 from services.ai_service import generate_followup_message
+from services.ai_followup_schedule_service import schedule_next_followup, test_mode_enabled
 from services.email_service import send_email
 from services.lead_acknowledgement_service import lead_interest
 from services.whatsapp_service import send_whatsapp, send_whatsapp_template
@@ -13,6 +15,14 @@ bp = Blueprint("ai_followups", __name__, url_prefix="/api/ai-followups")
 STOP_STATUSES = {"won", "lost", "converted", "closed", "not_interested"}
 
 
+def visible_lead(lead_id):
+    user = current_user()
+    query = Lead.query.filter(Lead.id == lead_id)
+    if user.role != "admin":
+        query = query.filter(Lead.assigned_to == user.id)
+    return query.first_or_404()
+
+
 def settings_row():
     row = CompanySettings.query.get(1)
     if not row:
@@ -20,15 +30,6 @@ def settings_row():
         db.session.add(row)
         db.session.flush()
     return row
-
-
-def interval_for(lead, settings):
-    tag = lead.tag or "warm"
-    if tag == "hot":
-        return int(settings.ai_followup_hot_interval_days or 2)
-    if tag == "cold":
-        return int(settings.ai_followup_cold_interval_days or 5)
-    return int(settings.ai_followup_warm_interval_days or 4)
 
 
 def channel_for(lead, settings):
@@ -61,7 +62,7 @@ def build_context(lead):
 
 
 def stop_reason(lead, settings):
-    if not settings.ai_followups_enabled:
+    if not settings.ai_followups_enabled and not test_mode_enabled():
         return "AI follow-ups disabled in settings"
     if not lead.ai_followup_enabled:
         return lead.ai_followup_paused_reason or "Automation paused for this lead"
@@ -77,7 +78,20 @@ def stop_reason(lead, settings):
 
 
 def skip_reason(lead):
-    recent_manual = MessageLog.query.filter_by(recipient_type="lead", recipient_id=lead.id).order_by(MessageLog.sent_at.desc()).first()
+    automated_templates = [value for value in {
+        current_app.config.get("WHATSAPP_AI_FOLLOWUP_TEMPLATE_NAME"),
+        current_app.config.get("WHATSAPP_LEAD_TEMPLATE_NAME"),
+        "AI Follow-up",
+        "Lead acknowledgement",
+    } if value]
+    recent_manual = MessageLog.query.filter(
+        MessageLog.recipient_type == "lead",
+        MessageLog.recipient_id == lead.id,
+        or_(
+            MessageLog.template_used.is_(None),
+            ~MessageLog.template_used.in_(automated_templates),
+        ),
+    ).order_by(MessageLog.sent_at.desc()).first()
     if recent_manual and recent_manual.sent_at and recent_manual.sent_at >= datetime.utcnow() - timedelta(hours=24):
         return "Recent salesperson communication exists"
     open_task = Task.query.filter(
@@ -91,8 +105,7 @@ def skip_reason(lead):
 
 
 def schedule_next(lead, settings, base=None):
-    base = base or datetime.utcnow()
-    lead.ai_next_followup_at = base + timedelta(days=interval_for(lead, settings))
+    return schedule_next_followup(lead, settings, base)
 
 
 def create_history(lead, settings, status, delivery_status="pending", message=None, skip=None, scheduled_for=None):
@@ -118,7 +131,8 @@ def create_history(lead, settings, status, delivery_status="pending", message=No
 
 def generate_for_lead(lead, settings):
     context = build_context(lead)
-    result = generate_followup_message(lead, context, settings)
+    variation_index = AIFollowUpHistory.query.filter_by(lead_id=lead.id).count()
+    result = generate_followup_message(lead, context, settings, variation_index=variation_index)
     history = create_history(lead, settings, "generated", message=result["message"])
     db.session.add(AIFollowUpPromptLog(
         followup_id=history.id,
@@ -132,7 +146,7 @@ def generate_for_lead(lead, settings):
     return history
 
 
-def send_history(history, body=None):
+def send_history(history, body=None, actor_id=None):
     lead = Lead.query.get(history.lead_id)
     settings = settings_row()
     message = body or history.edited_message or history.generated_message
@@ -166,12 +180,14 @@ def send_history(history, body=None):
     lead.ai_followup_count = int(lead.ai_followup_count or 0) + (1 if status in {"sent", "skipped"} else 0)
     lead.ai_engagement_score = min(100, int(lead.ai_engagement_score or 0) + (8 if status == "sent" else 1))
     schedule_next(lead, settings, history.sent_at)
-    log_activity(current_user().id if current_user() else lead.assigned_to, f"ai_followup_{history.status}", "lead", lead.id, lead.name)
+    actor = current_user() if has_request_context() else None
+    log_activity(actor_id or (actor.id if actor else lead.assigned_to), f"ai_followup_{history.status}", "lead", lead.id, lead.name)
     return history
 
 
 def lead_queue_row(lead, settings):
     reason = stop_reason(lead, settings)
+    waiting_for_test_schedule = test_mode_enabled() and lead.ai_next_followup_at is None
     last = AIFollowUpHistory.query.filter_by(lead_id=lead.id).order_by(AIFollowUpHistory.created_at.desc()).first()
     return {
         "id": lead.id,
@@ -190,8 +206,8 @@ def lead_queue_row(lead, settings):
         "ai_next_followup_at": lead.ai_next_followup_at.isoformat() if lead.ai_next_followup_at else None,
         "ai_last_followup_at": lead.ai_last_followup_at.isoformat() if lead.ai_last_followup_at else None,
         "channel": channel_for(lead, settings),
-        "automation_status": "stopped" if reason else "ready",
-        "stop_reason": reason,
+        "automation_status": "stopped" if reason else "not scheduled" if waiting_for_test_schedule else "ready",
+        "stop_reason": reason or ("Edit and save this lead to enroll it in the local minute test." if waiting_for_test_schedule else None),
         "last_message": last.to_dict() if last else None,
     }
 
@@ -199,7 +215,7 @@ def lead_queue_row(lead, settings):
 @bp.get("/lead/<int:lead_id>")
 @permission_required("leads", "view")
 def lead_followups(lead_id):
-    lead = Lead.query.get_or_404(lead_id)
+    lead = visible_lead(lead_id)
     rows = AIFollowUpHistory.query.filter_by(lead_id=lead.id).order_by(AIFollowUpHistory.created_at.desc()).limit(25).all()
     return jsonify({"lead": lead.to_dict(), "history": [row.to_dict() for row in rows]})
 
@@ -233,7 +249,9 @@ def resume(lead_id):
 @bp.post("/lead/<int:lead_id>/generate")
 @permission_required("ai_followups", "generate")
 def generate(lead_id):
-    lead = Lead.query.get_or_404(lead_id)
+    # Reload the record on every click so recently edited notes are always used.
+    lead = visible_lead(lead_id)
+    db.session.refresh(lead)
     history = generate_for_lead(lead, settings_row())
     db.session.commit()
     return jsonify(history.to_dict()), 201
@@ -268,14 +286,23 @@ def manual(lead_id):
 @bp.post("/run")
 @permission_required("ai_followups", "run")
 def run_scheduler():
+    limit = int((request.get_json() or {}).get("limit") or 25)
+    return jsonify(process_due_followups(limit=limit, actor_id=current_user().id))
+
+
+def process_due_followups(limit=25, actor_id=None):
     settings = settings_row()
     now = datetime.utcnow()
-    limit = int((request.get_json() or {}).get("limit") or 25)
-    leads = Lead.query.filter(
+    query = Lead.query.filter(
         Lead.ai_followup_enabled == 1,
         Lead.status.in_(["new", "contacted", "qualified"]),
         ((Lead.ai_next_followup_at == None) | (Lead.ai_next_followup_at <= now)),
-    ).limit(limit).all()
+    )
+    # Local minute mode only enrolls explicitly scheduled leads. This prevents
+    # old CRM records with a null schedule from being messaged during testing.
+    if test_mode_enabled():
+        query = query.filter(Lead.ai_next_followup_at.isnot(None))
+    leads = query.limit(limit).all()
     result = {"sent": 0, "skipped": 0, "failed": 0, "generated": 0}
     for lead in leads:
         reason = stop_reason(lead, settings) or skip_reason(lead)
@@ -286,7 +313,7 @@ def run_scheduler():
             continue
         history = generate_for_lead(lead, settings)
         result["generated"] += 1
-        send_history(history)
+        send_history(history, actor_id=actor_id)
         if history.status == "sent":
             result["sent"] += 1
         elif history.status == "failed":
@@ -294,7 +321,7 @@ def run_scheduler():
         else:
             result["skipped"] += 1
     db.session.commit()
-    return jsonify(result)
+    return result
 
 
 @bp.get("/workbench")
@@ -319,14 +346,23 @@ def workbench():
         Lead.ai_next_followup_at >= datetime.combine(today, datetime.min.time()),
         Lead.ai_next_followup_at <= datetime.combine(today, datetime.max.time()),
     ).count()
-    ready_now = Lead.query.filter(
+    ready_query = Lead.query.filter(
         Lead.ai_followup_enabled == 1,
         Lead.status.in_(active_statuses),
         ((Lead.ai_next_followup_at == None) | (Lead.ai_next_followup_at <= datetime.utcnow())),
-    ).count()
+    )
+    if test_mode_enabled():
+        ready_query = ready_query.filter(Lead.ai_next_followup_at.isnot(None))
+    ready_now = ready_query.count()
     return jsonify({
         "settings": {
-            "enabled": bool(settings.ai_followups_enabled),
+            "enabled": bool(settings.ai_followups_enabled or test_mode_enabled()),
+            "test_mode": test_mode_enabled(),
+            "test_intervals_minutes": {
+                "hot": current_app.config.get("AI_FOLLOWUP_TEST_HOT_MINUTES"),
+                "warm": current_app.config.get("AI_FOLLOWUP_TEST_WARM_MINUTES"),
+                "cold": current_app.config.get("AI_FOLLOWUP_TEST_COLD_MINUTES"),
+            } if test_mode_enabled() else None,
             "hot_interval_days": settings.ai_followup_hot_interval_days,
             "warm_interval_days": settings.ai_followup_warm_interval_days,
             "cold_interval_days": settings.ai_followup_cold_interval_days,

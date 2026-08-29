@@ -1,4 +1,5 @@
 import os
+from threading import Event, Thread
 from flask import Flask, jsonify
 from sqlalchemy import text
 from config import Config
@@ -6,6 +7,7 @@ from extensions import cors, db, jwt
 from routes.auth import bp as auth_bp
 from routes.ai_copilot import bp as ai_copilot_bp
 from routes.ai_followups import bp as ai_followups_bp
+from routes.ai_followups import process_due_followups
 from routes.campaigns import bp as campaigns_bp
 from routes.communication import bp as communication_bp
 from routes.customers import bp as customers_bp
@@ -144,6 +146,7 @@ def ensure_lead_columns(app):
         "probability": "INTEGER DEFAULT 10",
         "expected_close_date": "DATE",
         "lost_reason": "TEXT",
+        "lost_reason_detail": "TEXT",
         "ai_score_factors": "TEXT",
         "ai_scored_at": "DATETIME",
         "ai_next_best_action": "TEXT",
@@ -380,7 +383,13 @@ def create_app():
     app.url_map.strict_slashes = False
     db.init_app(app)
     jwt.init_app(app)
-    cors.init_app(app, resources={r"/api/*": {"origins": ["http://localhost:5173", "http://127.0.0.1:5173"]}})
+    cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    cors_origins.extend(
+        origin.strip().rstrip("/")
+        for origin in os.getenv("CORS_ORIGINS", "").split(",")
+        if origin.strip()
+    )
+    cors.init_app(app, resources={r"/api/*": {"origins": cors_origins}})
 
     for bp in [
         auth_bp, leads_bp, customers_bp, tasks_bp, campaigns_bp, communication_bp,
@@ -417,14 +426,46 @@ def create_app():
     return app
 
 
+def start_local_followup_scheduler(app):
+    if not app.config.get("AI_FOLLOWUP_TEST_MODE"):
+        return None
+    interval = int(app.config.get("AI_FOLLOWUP_SCHEDULER_INTERVAL_SECONDS") or 15)
+    stop_event = Event()
+
+    def worker():
+        app.logger.warning(
+            "AI follow-up LOCAL TEST MODE is active: hot=%sm, warm=%sm, cold=%sm",
+            app.config["AI_FOLLOWUP_TEST_HOT_MINUTES"],
+            app.config["AI_FOLLOWUP_TEST_WARM_MINUTES"],
+            app.config["AI_FOLLOWUP_TEST_COLD_MINUTES"],
+        )
+        while not stop_event.wait(interval):
+            with app.app_context():
+                try:
+                    result = process_due_followups(limit=25)
+                    if any(result.values()):
+                        app.logger.info("Local AI follow-up scheduler: %s", result)
+                except Exception:
+                    db.session.rollback()
+                    app.logger.exception("Local AI follow-up scheduler failed")
+                finally:
+                    db.session.remove()
+
+    Thread(target=worker, name="local-ai-followup-scheduler", daemon=True).start()
+    return stop_event
+
+
 app = None if os.getenv("DIGIDARA_SKIP_AUTO_APP") == "1" else create_app()
 
 
 if __name__ == "__main__":
     if app is None:
         app = create_app()
+    debug = os.getenv("FLASK_DEBUG", "0") == "1"
+    if not debug or os.getenv("WERKZEUG_RUN_MAIN") == "true":
+        start_local_followup_scheduler(app)
     app.run(
         host=os.getenv("FLASK_HOST", "127.0.0.1"),
-        port=int(os.getenv("FLASK_PORT", "5000")),
-        debug=os.getenv("FLASK_DEBUG", "0") == "1",
+        port=int(os.getenv("FLASK_PORT", "5002")),
+        debug=debug,
     )
