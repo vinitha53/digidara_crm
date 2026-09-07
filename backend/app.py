@@ -33,6 +33,7 @@ MYSQL_REQUIRED_TABLES = {
     "leads",
     "ai_followup_history",
     "ai_followup_prompt_logs",
+    "ai_followup_templates",
     "customers",
     "customer_notes",
     "customer_documents",
@@ -90,8 +91,8 @@ def ensure_company_settings_columns(app):
         "ai_followup_cold_interval_days": "INTEGER DEFAULT 5",
         "ai_followup_business_hours": "TEXT DEFAULT '09:00-18:00'",
         "ai_followup_working_days": "TEXT DEFAULT 'Mon,Tue,Wed,Thu,Fri,Sat'",
-        "ai_followup_max_count": "INTEGER DEFAULT 6",
-        "ai_followup_stop_after_no_response": "INTEGER DEFAULT 4",
+        "ai_followup_max_count": "INTEGER DEFAULT 10",
+        "ai_followup_stop_after_no_response": "INTEGER DEFAULT 0",
         "ai_followup_preferred_channel": "TEXT DEFAULT 'WhatsApp'",
         "ai_followup_llm_model": "TEXT DEFAULT 'llama3-8b-8192'",
     }
@@ -158,6 +159,8 @@ def ensure_lead_columns(app):
         "ai_followup_count": "INTEGER DEFAULT 0",
         "ai_engagement_score": "INTEGER DEFAULT 0",
         "ai_followup_outcome": "TEXT",
+        "ai_followup_stop_reason": "TEXT",
+        "ai_followup_stopped_at": "DATETIME",
     }
     with app.app_context():
         existing = {row[1] for row in db.session.execute(text("PRAGMA table_info(leads)")).all()}
@@ -345,6 +348,37 @@ def ensure_ai_chat_columns(app):
         db.session.commit()
 
 
+def ensure_ai_followup_columns(app):
+    tables = {
+        "ai_followup_history": {
+            "final_message": "TEXT", "sequence_step": "INTEGER", "temperature_snapshot": "TEXT",
+            "recipient_phone": "TEXT", "original_phone": "TEXT", "template_id": "INTEGER",
+            "template_text": "TEXT", "generated_at": "DATETIME", "stopped_at": "DATETIME",
+            "stopped_reason": "TEXT", "provider_message_id": "TEXT", "provider_status": "TEXT",
+            "provider_response": "TEXT", "provider_error": "TEXT", "automation_mode": "TEXT DEFAULT 'automatic'",
+            "response_received_at": "DATETIME", "claimed_at": "DATETIME",
+        },
+        "message_logs": {
+            "recipient_phone": "TEXT", "provider_message_id": "TEXT", "provider_status": "TEXT",
+            "provider_response": "TEXT", "error_message": "TEXT", "followup_id": "INTEGER",
+        },
+    }
+    if not is_sqlite(app):
+        return
+    with app.app_context():
+        for table_name, columns in tables.items():
+            existing = {row[1] for row in db.session.execute(text(f"PRAGMA table_info({table_name})")).all()}
+            for name, kind in columns.items():
+                if name not in existing:
+                    db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {kind}"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_ai_followup_sequence ON ai_followup_history(temperature_snapshot, sequence_step)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_ai_followup_recipient ON ai_followup_history(recipient_phone)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_ai_followup_provider_message ON ai_followup_history(provider_message_id)"))
+        db.session.execute(text("UPDATE company_settings SET ai_followup_max_count = 10 WHERE ai_followup_max_count IS NULL OR ai_followup_max_count = 6"))
+        db.session.execute(text("UPDATE company_settings SET ai_followup_stop_after_no_response = 0 WHERE ai_followup_stop_after_no_response = 4"))
+        db.session.commit()
+
+
 def ensure_role_permissions(app):
     with app.app_context():
         if is_sqlite(app):
@@ -421,7 +455,12 @@ def create_app():
         ensure_lead_integration_columns(app)
         ensure_user_access_columns(app)
     ensure_ai_chat_columns(app)
+    ensure_ai_followup_columns(app)
     ensure_role_permissions(app)
+    with app.app_context():
+        from services.ai_followup_service import seed_sequence_templates
+        seed_sequence_templates()
+        db.session.commit()
 
     return app
 

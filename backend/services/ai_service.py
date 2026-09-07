@@ -163,12 +163,18 @@ def fallback_summary(recipient, messages, channel):
     }
 
 
-def generate_followup_message(lead, context, settings, variation_index=0):
+def generate_followup_message(lead, context, settings, variation_index=0, template_body=None):
     configured_model = settings.ai_followup_llm_model
     if configured_model in {None, "", "llama3-8b-8192"}:
         configured_model = current_app.config.get("GROQ_MODEL")
     model = configured_model or "llama-3.3-70b-versatile"
     latest_notes = (lead.notes or "No new notes recorded").strip()
+    approved_template = " ".join(str(template_body or "").split())
+    template_instruction = (
+        f"Approved admin template (source of truth): {approved_template}\n"
+        "Keep the same intent and call to action. Personalize wording only from the supplied lead fields. "
+        if approved_template else ""
+    )
     prompt = (
         "You are an enterprise CRM follow-up assistant for Digidara Technologies. "
         "Generate one natural, personalized, customer-safe follow-up message in 2 to 3 short lines. "
@@ -178,6 +184,7 @@ def generate_followup_message(lead, context, settings, variation_index=0):
         "Do not repeat or closely paraphrase a previous message. Do not invent facts not present in the lead or context. "
         "Be professional, concise, context-aware, and suggest the next logical step. "
         "Return only the message text.\n\n"
+        f"{template_instruction}"
         f"Lead: {lead.name}\n"
         f"Temperature: {lead.tag}\n"
         f"Stage: {lead.status}\n"
@@ -203,8 +210,8 @@ def generate_followup_message(lead, context, settings, variation_index=0):
             text = chat.choices[0].message.content.strip()
             return {"message": text, "prompt": prompt, "model": model, "status": "success", "error": None}
         except Exception as exc:
-            return {"message": fallback_followup(lead, variation_index), "prompt": prompt, "model": model, "status": "fallback", "error": str(exc)}
-    return {"message": fallback_followup(lead, variation_index), "prompt": prompt, "model": "deterministic-fallback", "status": "fallback", "error": None}
+            return {"message": approved_template or fallback_followup(lead, variation_index), "prompt": prompt, "model": model, "status": "fallback", "error": str(exc)}
+    return {"message": approved_template or fallback_followup(lead, variation_index), "prompt": prompt, "model": "deterministic-fallback", "status": "fallback", "error": None}
 
 
 def fallback_followup(lead, variation_index=0):

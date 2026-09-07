@@ -45,6 +45,8 @@ class Lead(db.Model):
     ai_followup_count = db.Column(db.Integer, default=0)
     ai_engagement_score = db.Column(db.Integer, default=0)
     ai_followup_outcome = db.Column(db.Text)
+    ai_followup_stop_reason = db.Column(db.Text)
+    ai_followup_stopped_at = db.Column(db.DateTime)
     source_system = db.Column(db.Text)
     external_id = db.Column(db.Text)
     external_created_at = db.Column(db.DateTime)

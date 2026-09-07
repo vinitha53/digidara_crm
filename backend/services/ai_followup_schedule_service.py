@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 from flask import current_app
 
@@ -29,5 +29,34 @@ def followup_interval(lead, settings):
 
 
 def schedule_next_followup(lead, settings=None, base=None):
-    lead.ai_next_followup_at = (base or datetime.utcnow()) + followup_interval(lead, settings)
+    candidate = (base or datetime.utcnow()) + followup_interval(lead, settings)
+    if not test_mode_enabled() and settings:
+        candidate = next_working_time(candidate, settings)
+    lead.ai_next_followup_at = candidate
     return lead.ai_next_followup_at
+
+
+def next_working_time(candidate, settings):
+    raw_hours = str(getattr(settings, "ai_followup_business_hours", None) or "09:00-18:00")
+    try:
+        start_raw, end_raw = raw_hours.split("-", 1)
+        start = time.fromisoformat(start_raw.strip())
+        end = time.fromisoformat(end_raw.strip())
+    except ValueError:
+        start, end = time(9), time(18)
+    working = {
+        item.strip().title()[:3]
+        for item in str(getattr(settings, "ai_followup_working_days", None) or "Mon,Tue,Wed,Thu,Fri,Sat").split(",")
+        if item.strip()
+    } or {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+    for _ in range(8):
+        if candidate.strftime("%a") not in working:
+            candidate = datetime.combine(candidate.date() + timedelta(days=1), start)
+            continue
+        if candidate.time() < start:
+            return datetime.combine(candidate.date(), start)
+        if candidate.time() > end:
+            candidate = datetime.combine(candidate.date() + timedelta(days=1), start)
+            continue
+        return candidate
+    return candidate

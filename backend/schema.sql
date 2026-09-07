@@ -155,6 +155,8 @@ CREATE TABLE IF NOT EXISTS leads (
     ai_followup_count    INT NOT NULL DEFAULT 0,
     ai_engagement_score  TINYINT UNSIGNED NOT NULL DEFAULT 0,
     ai_followup_outcome  VARCHAR(80) NULL,
+    ai_followup_stop_reason TEXT NULL,
+    ai_followup_stopped_at DATETIME NULL,
     source_system        VARCHAR(40) NULL,
     external_id          VARCHAR(190) NULL,
     external_created_at  DATETIME NULL,
@@ -197,12 +199,29 @@ CREATE TABLE IF NOT EXISTS ai_followup_history (
     message_type      VARCHAR(80) NOT NULL DEFAULT 'follow_up',
     generated_message TEXT NULL,
     edited_message    TEXT NULL,
+    final_message     TEXT NULL,
+    sequence_step     INT NULL,
+    temperature_snapshot VARCHAR(30) NULL,
+    recipient_phone   VARCHAR(40) NULL,
+    original_phone    VARCHAR(40) NULL,
+    template_id       INT UNSIGNED NULL,
+    template_text     TEXT NULL,
     status            VARCHAR(40) NOT NULL DEFAULT 'generated',
     delivery_status   VARCHAR(40) NOT NULL DEFAULT 'pending',
     skip_reason       TEXT NULL,
     outcome           VARCHAR(80) NULL,
     scheduled_for     DATETIME NULL,
     sent_at           DATETIME NULL,
+    generated_at      DATETIME NULL,
+    stopped_at        DATETIME NULL,
+    stopped_reason    TEXT NULL,
+    provider_message_id VARCHAR(190) NULL,
+    provider_status   VARCHAR(40) NULL,
+    provider_response LONGTEXT NULL,
+    provider_error    TEXT NULL,
+    automation_mode   VARCHAR(30) NOT NULL DEFAULT 'automatic',
+    response_received_at DATETIME NULL,
+    claimed_at        DATETIME NULL,
     idempotency_key   VARCHAR(190) NOT NULL,
     created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -211,14 +230,37 @@ CREATE TABLE IF NOT EXISTS ai_followup_history (
     KEY idx_ai_followup_lead (lead_id),
     KEY idx_ai_followup_status (status),
     KEY idx_ai_followup_scheduled (scheduled_for),
+    KEY idx_ai_followup_sequence (temperature_snapshot, sequence_step),
+    KEY idx_ai_followup_recipient (recipient_phone),
+    KEY idx_ai_followup_provider_message (provider_message_id),
     CONSTRAINT fk_ai_followup_lead
         FOREIGN KEY (lead_id) REFERENCES leads(id)
         ON UPDATE CASCADE ON DELETE CASCADE,
     CONSTRAINT fk_ai_followup_user
         FOREIGN KEY (user_id) REFERENCES users(id)
         ON UPDATE CASCADE ON DELETE SET NULL,
-    CONSTRAINT chk_ai_followup_status CHECK (status IN ('generated', 'sent', 'failed', 'skipped', 'paused', 'manual')),
-    CONSTRAINT chk_ai_followup_delivery CHECK (delivery_status IN ('pending', 'sent', 'failed', 'skipped'))
+    CONSTRAINT chk_ai_followup_status CHECK (status IN ('generated', 'pending', 'sent', 'delivered', 'read', 'failed', 'skipped', 'paused', 'manual', 'stopped', 'cancelled')),
+    CONSTRAINT chk_ai_followup_delivery CHECK (delivery_status IN ('pending', 'accepted', 'sent', 'delivered', 'read', 'failed', 'skipped', 'stopped', 'cancelled'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_followup_templates (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    temperature VARCHAR(30) NOT NULL,
+    sequence_step INT NOT NULL,
+    template_body TEXT NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    description TEXT NULL,
+    created_by INT UNSIGNED NULL,
+    updated_by INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_ai_followup_template_step (temperature, sequence_step),
+    KEY idx_ai_followup_template_active (temperature, is_active),
+    CONSTRAINT fk_ai_template_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT fk_ai_template_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT chk_ai_template_temperature CHECK (temperature IN ('hot', 'warm')),
+    CONSTRAINT chk_ai_template_step CHECK (sequence_step BETWEEN 1 AND 10)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS ai_followup_prompt_logs (
@@ -648,6 +690,12 @@ CREATE TABLE IF NOT EXISTS message_logs (
     message_body   TEXT NULL,
     status         VARCHAR(30) NOT NULL DEFAULT 'sent',
     template_used  VARCHAR(190) NULL,
+    recipient_phone VARCHAR(40) NULL,
+    provider_message_id VARCHAR(190) NULL,
+    provider_status VARCHAR(40) NULL,
+    provider_response LONGTEXT NULL,
+    error_message TEXT NULL,
+    followup_id INT UNSIGNED NULL,
     sent_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
@@ -656,6 +704,7 @@ CREATE TABLE IF NOT EXISTS message_logs (
     KEY idx_message_logs_recipient_sent (recipient_type, recipient_id, sent_at),
     KEY idx_message_logs_status (status),
     KEY idx_message_logs_template (template_used),
+    KEY idx_message_logs_followup (followup_id),
     KEY idx_message_logs_sent_at (sent_at),
     CONSTRAINT fk_message_logs_campaign
         FOREIGN KEY (campaign_id) REFERENCES campaigns(id)
@@ -756,8 +805,8 @@ CREATE TABLE IF NOT EXISTS company_settings (
     ai_followup_cold_interval_days INT NOT NULL DEFAULT 5,
     ai_followup_business_hours VARCHAR(40) NOT NULL DEFAULT '09:00-18:00',
     ai_followup_working_days   VARCHAR(80) NOT NULL DEFAULT 'Mon,Tue,Wed,Thu,Fri,Sat',
-    ai_followup_max_count      INT NOT NULL DEFAULT 6,
-    ai_followup_stop_after_no_response INT NOT NULL DEFAULT 4,
+    ai_followup_max_count      INT NOT NULL DEFAULT 10,
+    ai_followup_stop_after_no_response INT NOT NULL DEFAULT 0,
     ai_followup_preferred_channel VARCHAR(40) NOT NULL DEFAULT 'WhatsApp',
     ai_followup_llm_model      VARCHAR(120) NOT NULL DEFAULT 'llama3-8b-8192',
     updated_at                 DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -948,8 +997,8 @@ CALL add_column_if_missing('company_settings', 'ai_followup_warm_interval_days',
 CALL add_column_if_missing('company_settings', 'ai_followup_cold_interval_days', 'INT NOT NULL DEFAULT 5');
 CALL add_column_if_missing('company_settings', 'ai_followup_business_hours', 'VARCHAR(40) NOT NULL DEFAULT ''09:00-18:00''');
 CALL add_column_if_missing('company_settings', 'ai_followup_working_days', 'VARCHAR(80) NOT NULL DEFAULT ''Mon,Tue,Wed,Thu,Fri,Sat''');
-CALL add_column_if_missing('company_settings', 'ai_followup_max_count', 'INT NOT NULL DEFAULT 6');
-CALL add_column_if_missing('company_settings', 'ai_followup_stop_after_no_response', 'INT NOT NULL DEFAULT 4');
+CALL add_column_if_missing('company_settings', 'ai_followup_max_count', 'INT NOT NULL DEFAULT 10');
+CALL add_column_if_missing('company_settings', 'ai_followup_stop_after_no_response', 'INT NOT NULL DEFAULT 0');
 CALL add_column_if_missing('company_settings', 'ai_followup_preferred_channel', 'VARCHAR(40) NOT NULL DEFAULT ''WhatsApp''');
 CALL add_column_if_missing('company_settings', 'ai_followup_llm_model', 'VARCHAR(120) NOT NULL DEFAULT ''llama3-8b-8192''');
 

@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import datetime
 from unittest.mock import patch
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
@@ -11,7 +12,7 @@ from flask_jwt_extended import create_access_token
 
 from app import create_app
 from extensions import db
-from models import CompanySettings, Lead, MessageLog, RolePermission, User
+from models import AIFollowUpHistory, CompanySettings, Lead, MessageLog, RolePermission, User
 from services.ai_service import generate_followup_message
 from services.lead_assignment_service import send_lead_assignment_notification
 from routes.ai_followups import skip_reason
@@ -319,6 +320,64 @@ class LeadAssignmentTestCase(unittest.TestCase):
         other_followups = self.client.get(f"/api/ai-followups/lead/{other.id}", headers=self.staff_headers)
         self.assertEqual(own_followups.status_code, 200)
         self.assertEqual(other_followups.status_code, 404)
+
+    def test_ai_followup_workbench_and_mutations_are_scoped_to_assigned_leads(self):
+        own = Lead(name="My Follow-up", phone="9000000011", service="Course", assigned_to=self.staff.id)
+        other = Lead(name="Private Follow-up", phone="9000000012", service="Project", assigned_to=self.inactive.id)
+        db.session.add_all([own, other])
+        db.session.flush()
+        own_history = AIFollowUpHistory(lead_id=own.id, user_id=self.staff.id, generated_message="Own", idempotency_key="own-history")
+        other_history = AIFollowUpHistory(lead_id=other.id, user_id=self.inactive.id, generated_message="Other", idempotency_key="other-history")
+        db.session.add_all([own_history, other_history])
+        db.session.commit()
+
+        workbench = self.client.get("/api/ai-followups/workbench", headers=self.staff_headers)
+
+        self.assertEqual(workbench.status_code, 200)
+        self.assertEqual([row["id"] for row in workbench.get_json()["leads"]], [own.id])
+        self.assertEqual([row["id"] for row in workbench.get_json()["history"]], [own_history.id])
+        self.assertEqual(workbench.get_json()["metrics"]["generated"], 1)
+        self.assertEqual(self.client.post(f"/api/ai-followups/lead/{other.id}/pause", headers=self.staff_headers).status_code, 404)
+        self.assertEqual(self.client.post(f"/api/ai-followups/lead/{other.id}/resume", headers=self.staff_headers).status_code, 404)
+        self.assertEqual(self.client.post(f"/api/ai-followups/lead/{other.id}/manual", headers=self.staff_headers).status_code, 404)
+        self.assertEqual(self.client.post(f"/api/ai-followups/history/{other_history.id}/send", headers=self.staff_headers).status_code, 404)
+
+    def test_sent_ai_followup_cannot_be_sent_twice(self):
+        lead = Lead(name="Sent Lead", phone="9000000013", service="Course", assigned_to=self.staff.id)
+        db.session.add(lead)
+        db.session.flush()
+        history = AIFollowUpHistory(
+            lead_id=lead.id, user_id=self.staff.id, generated_message="Already sent",
+            status="sent", delivery_status="sent", idempotency_key="already-sent",
+        )
+        db.session.add(history)
+        db.session.commit()
+
+        response = self.client.post(f"/api/ai-followups/history/{history.id}/send", headers=self.staff_headers)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()["message"], "This follow-up has already been sent.")
+
+    def test_staff_scheduled_run_is_scoped_to_assigned_leads(self):
+        db.session.add(RolePermission(role="staff", page_key="ai_followups", action="run", allowed=1))
+        settings = CompanySettings(id=1, ai_followups_enabled=True, ai_followup_max_count=6)
+        own = Lead(
+            name="My Due Lead", phone="9000000014", service="Course", assigned_to=self.staff.id,
+            notes="Do not contact", ai_followup_enabled=True, ai_next_followup_at=datetime(2020, 1, 1),
+        )
+        other = Lead(
+            name="Other Due Lead", phone="9000000015", service="Project", assigned_to=self.inactive.id,
+            notes="Do not contact", ai_followup_enabled=True, ai_next_followup_at=datetime(2020, 1, 1),
+        )
+        db.session.add_all([settings, own, other])
+        db.session.commit()
+
+        response = self.client.post("/api/ai-followups/run", json={"limit": 25}, headers=self.staff_headers)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["skipped"], 1)
+        self.assertEqual(AIFollowUpHistory.query.filter_by(lead_id=own.id).count(), 1)
+        self.assertEqual(AIFollowUpHistory.query.filter_by(lead_id=other.id).count(), 0)
 
     def test_staff_menu_access_follows_configured_permission_rows(self):
         db.session.add_all([

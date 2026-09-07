@@ -7,6 +7,7 @@ from extensions import db
 from sqlalchemy import and_, or_
 from models import ActivityLog, CompanySettings, Customer, CustomerDocument, CustomerNote, Lead, MessageLog, Task
 from permissions import has_permission
+from services.ai_followup_service import cancel_followups
 from services.email_service import send_email
 from services.google_reviews_service import find_customer_review
 from services.whatsapp_service import send_whatsapp
@@ -202,6 +203,7 @@ def create_customer():
         customer.last_contact = parse_date(data["last_contact"])
     db.session.add(customer)
     db.session.flush()
+    cancel_followups(lead, "Lead converted to customer", current_user().id)
     log_activity(current_user().id, "customer_created", "customer", customer.id, customer.name)
     db.session.commit()
     return jsonify(customer.to_dict()), 201

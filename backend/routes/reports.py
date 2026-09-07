@@ -208,6 +208,7 @@ def owner_report():
 @permission_required("dashboard", "view")
 def owner_overview():
     user = current_user()
+    from routes.ai_followups import scoped_metrics, scoped_performance
     today = date.today()
     month_start = today.replace(day=1)
     open_statuses = ["new", "contacted", "qualified"]
@@ -335,6 +336,8 @@ def owner_overview():
         "tasks_today": tasks.filter_by(due_date=today).filter(Task.status != "done").count(),
         "completed_today": tasks.filter(func.date(Task.completed_at) == today).count(),
         "hot_leads": leads.filter_by(tag="hot").filter(Lead.status.in_(open_statuses)).count(),
+        "ai_followups": scoped_metrics(user),
+        "ai_followup_performance": scoped_performance(user),
     })
 
 

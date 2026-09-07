@@ -37,29 +37,29 @@ def whatsapp_credentials():
 
 def send_whatsapp(to, body):
     token, phone_number_id, api_url = whatsapp_credentials()
-    if not token or not phone_number_id:
-        return {"ok": False, "skipped": True, "error": "WhatsApp Phone Number ID and API token are required in Settings > Integrations."}
     recipient = whatsapp_recipient(to)
     if not recipient:
-        return {"ok": False, "skipped": True, "error": "Recipient phone number is required."}
+        return {"ok": False, "skipped": True, "error": "Recipient phone number is required.", "recipient_phone": recipient, "transport": "text"}
+    if not token or not phone_number_id:
+        return {"ok": False, "skipped": True, "error": "WhatsApp Phone Number ID and API token are required in Settings > Integrations.", "recipient_phone": recipient, "transport": "text"}
     url = f"{api_url}/{phone_number_id}/messages"
     payload = {"messaging_product": "whatsapp", "to": recipient, "type": "text", "text": {"body": body}}
     try:
         res = requests.post(url, json=payload, headers={"Authorization": f"Bearer {token}"}, timeout=15)
-        return {"ok": res.ok, "status_code": res.status_code, "data": res.json() if res.content else {}}
+        return {"ok": res.ok, "status_code": res.status_code, "data": res.json() if res.content else {}, "recipient_phone": recipient, "transport": "text"}
     except requests.RequestException as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": str(exc), "recipient_phone": recipient, "transport": "text"}
 
 
 def send_whatsapp_template(to, template_name, language_code, body_params=None, url_button_params=None):
     token, phone_number_id, api_url = whatsapp_credentials()
-    if not token or not phone_number_id:
-        return {"ok": False, "skipped": True, "error": "WhatsApp Phone Number ID and API token are required in Settings > Integrations."}
     recipient = whatsapp_recipient(to)
     if not recipient:
-        return {"ok": False, "skipped": True, "error": "Recipient phone number is required."}
+        return {"ok": False, "skipped": True, "error": "Recipient phone number is required.", "recipient_phone": recipient, "transport": "template", "template_name": template_name}
+    if not token or not phone_number_id:
+        return {"ok": False, "skipped": True, "error": "WhatsApp Phone Number ID and API token are required in Settings > Integrations.", "recipient_phone": recipient, "transport": "template", "template_name": template_name}
     if not template_name:
-        return {"ok": False, "skipped": True, "error": "WhatsApp template name is required."}
+        return {"ok": False, "skipped": True, "error": "WhatsApp template name is required.", "recipient_phone": recipient, "transport": "template", "template_name": template_name}
 
     payload = {
         "messaging_product": "whatsapp",
@@ -90,6 +90,6 @@ def send_whatsapp_template(to, template_name, language_code, body_params=None, u
     url = f"{api_url}/{phone_number_id}/messages"
     try:
         res = requests.post(url, json=payload, headers={"Authorization": f"Bearer {token}"}, timeout=15)
-        return {"ok": res.ok, "status_code": res.status_code, "data": res.json() if res.content else {}}
+        return {"ok": res.ok, "status_code": res.status_code, "data": res.json() if res.content else {}, "recipient_phone": recipient, "transport": "template", "template_name": template_name}
     except requests.RequestException as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": str(exc), "recipient_phone": recipient, "transport": "template", "template_name": template_name}

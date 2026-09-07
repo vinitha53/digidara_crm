@@ -14,6 +14,12 @@ class MessageLog(db.Model):
     message_body = db.Column(db.Text)
     status = db.Column(db.Text, default="sent")
     template_used = db.Column(db.Text)
+    recipient_phone = db.Column(db.Text)
+    provider_message_id = db.Column(db.Text)
+    provider_status = db.Column(db.Text)
+    provider_response = db.Column(db.Text)
+    error_message = db.Column(db.Text)
+    followup_id = db.Column(db.Integer, db.ForeignKey("ai_followup_history.id"))
     sent_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):

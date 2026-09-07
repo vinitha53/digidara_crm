@@ -16,7 +16,7 @@ from .role import Role
 from .saved_view import SavedView
 from .education import Batch, Course, Student
 from .ai_interaction import AIInteraction
-from .ai_followup import AIFollowUpHistory, AIFollowUpPromptLog
+from .ai_followup import AIFollowUpHistory, AIFollowUpPromptLog, AIFollowUpTemplate
 from .workflow import WorkflowRule, WorkflowRuleRun
 from .login_otp_challenge import LoginOtpChallenge
 from .integration import Integration
@@ -44,6 +44,7 @@ __all__ = [
     "AIInteraction",
     "AIFollowUpHistory",
     "AIFollowUpPromptLog",
+    "AIFollowUpTemplate",
     "WorkflowRule",
     "WorkflowRuleRun",
     "LoginOtpChallenge",

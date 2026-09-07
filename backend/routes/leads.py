@@ -4,6 +4,7 @@ from sqlalchemy import func
 from extensions import db
 from models import ActivityLog, Customer, Lead, MessageLog, Task, User
 from permissions import has_permission
+from services.ai_followup_service import STOP_STATUSES, cancel_followups
 from services.email_service import send_email
 from services.lead_acknowledgement_service import send_customer_conversion_welcome, send_lead_acknowledgement
 from services.lead_assignment_service import send_lead_assignment_notification
@@ -133,6 +134,7 @@ def convert_won_lead_to_customer(lead):
     customer.assigned_to = lead.assigned_to
     customer.notes = lead.notes
     db.session.flush()
+    cancel_followups(lead, "Lead converted to customer", current_user().id)
     if is_new:
         send_customer_welcome(customer, lead)
         log_activity(current_user().id, "lead_converted_to_customer", "customer", customer.id, customer.name)
@@ -273,6 +275,8 @@ def bulk_update():
                 lead.lost_reason = lost_reason
                 lead.lost_reason_detail = lost_reason_detail
             normalize_lead(lead)
+            if lead.status in STOP_STATUSES and lead.status != "won":
+                cancel_followups(lead, f"Lead status stops automation: {lead.status}", current_user().id)
             convert_won_lead_to_customer(lead)
         elif action == "tag":
             lead.tag = data.get("value") or lead.tag
@@ -375,6 +379,8 @@ def update(id):
         return jsonify({"message": "Lead conversion permission required"}), 403
     old_status = lead.status
     normalize_lead(update_model(lead, data, ALLOWED))
+    if lead.status in STOP_STATUSES and lead.status != "won":
+        cancel_followups(lead, f"Lead status stops automation: {lead.status}", current_user().id)
     if new_assignee and previous_assignee_id != lead.assigned_to:
         send_lead_assignment_notification(lead, new_assignee)
     if "expected_close_date" in data:
