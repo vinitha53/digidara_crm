@@ -289,8 +289,8 @@ export default function Settings() {
             <section className="settings-subcard">
               <h3>Safety limits</h3><p>Prevent excessive outreach to unresponsive leads.</p>
               <div className="time-grid">
-                <NumberField label="Maximum follow-ups" min={0} max={50} unit="times" value={form.ai_followup_max_count ?? 6} onChange={(value) => set("ai_followup_max_count", value)} />
-                <NumberField label="Stop after no response" min={0} max={50} unit="times" value={form.ai_followup_stop_after_no_response ?? 4} onChange={(value) => set("ai_followup_stop_after_no_response", value)} />
+                <NumberField label="Maximum follow-ups (0 disables outreach)" min={0} max={10} unit="times" value={form.ai_followup_max_count ?? 10} onChange={(value) => set("ai_followup_max_count", value)} />
+                <NumberField label="Stop after no response (0 runs full sequence)" min={0} max={10} unit="times" value={form.ai_followup_stop_after_no_response ?? 0} onChange={(value) => set("ai_followup_stop_after_no_response", value)} />
               </div>
             </section>
             <section className="settings-subcard">

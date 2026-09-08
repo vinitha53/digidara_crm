@@ -49,6 +49,23 @@ export default function Dashboard() {
       <KpiCard label="Academic Lost" value={data.owner.academic_lost || 0} sub={`${data.owner.academic_loss_rate || 0}% of academic leads`} color="red" to="/leads?status=lost&segment=academic" />
       <KpiCard label="Project Lost" value={data.owner.project_lost || 0} sub={`${data.owner.project_loss_rate || 0}% of project leads`} color="red" to="/leads?status=lost&segment=project" />
     </div>
+    <div className="dashboard-section-heading"><div><span>AI follow-up operations</span><h2>{isStaff ? "Your automated lead sequences" : "Organization follow-up health"}</h2></div><p>Accepted messages are tracked separately from confirmed delivery and reads.</p></div>
+    <div className="owner-kpi-grid">
+      <KpiCard label="Active Sequences" value={data.owner.ai_followups?.active_leads || 0} to="/ai-followups" />
+      <KpiCard label="HOT Active" value={data.owner.ai_followups?.hot_active || 0} color="red" to="/ai-followups?temperature=hot" />
+      <KpiCard label="WARM Active" value={data.owner.ai_followups?.warm_active || 0} color="amber" to="/ai-followups?temperature=warm" />
+      <KpiCard label="Due Now" value={data.owner.ai_followups?.ready_now || 0} color="amber" to="/ai-followups?due=now" />
+      <KpiCard label="Due Today" value={data.owner.ai_followups?.due_today || 0} color="amber" to="/ai-followups?due=today" />
+      <KpiCard label="Sent Today" value={data.owner.ai_followups?.sent_today || 0} color="teal" to="/ai-followups?status=sent" />
+      <KpiCard label="Failed Today" value={data.owner.ai_followups?.failed_today || 0} color="red" to="/ai-followups?status=failed" />
+      <KpiCard label="Stopped" value={data.owner.ai_followups?.paused_stopped || 0} to="/ai-followups?status=stopped" />
+      <KpiCard label="Sequence Completed" value={data.owner.ai_followups?.sequence_completed || 0} color="teal" to="/ai-followups?status=stopped" />
+      <KpiCard label="Converted After Follow-up" value={data.owner.ai_followups?.converted_after_followup || 0} color="teal" to="/ai-followups?status=converted" />
+      <KpiCard label="Delivery Success Rate" value={`${data.owner.ai_followups?.delivery_success_rate || 0}%`} color="teal" to="/ai-followups?status=delivered" />
+      <KpiCard label="Follow-up Conversion Rate" value={`${data.owner.ai_followups?.followup_conversion_rate || 0}%`} color="teal" to="/ai-followups?status=converted" />
+      <KpiCard label="Average Messages Before Conversion" value={data.owner.ai_followups?.average_messages_before_conversion || 0} to="/ai-followups?status=converted" />
+    </div>
+    <FollowupPerformance data={data.owner.ai_followup_performance || {}} />
     <div className="dashboard-section-heading"><div><span>Conversion and pipeline</span><h2>From enquiry to won customer</h2></div><p>The conversion rate is the number of won leads divided by the total number of leads.</p></div>
     <div className="owner-kpi-grid">
       <KpiCard label="Conversion Rate" value={`${data.owner.conversion_rate || 0}%`} sub={`${data.owner.won_leads || 0} of ${data.owner.total_leads || 0} leads won`} color="teal" to="/leads?status=won" />
@@ -112,6 +129,15 @@ function LossIntelligence({ data }) {
 
 function PipelineSnapshot({ data }) {
   return <Card className="pipeline-snapshot-card"><div className="pipeline-snapshot-head"><div><h2>Current Lead Pipeline</h2><p>See where the active portfolio is concentrated and drill into any stage.</p></div><Link to="/leads">View all leads</Link></div><div className="pipeline-snapshot">{data.map((item) => <Link className={`pipeline-stage ${item.key}`} to={`/leads?status=${item.key}`} key={item.key}><span>{item.name}</span><strong>{item.value}</strong><small>{item.share}% of tracked pipeline</small><div><i style={{ width: `${Math.min(item.share, 100)}%` }} /></div></Link>)}</div></Card>;
+}
+
+function FollowupPerformance({ data }) {
+  const groups = [["Salesperson", data.owners || [], "owner"], ["Source", data.sources || [], "source"], ["Temperature", data.temperatures || [], "temperature"]];
+  return <div className="grid dashboard-followup-performance">{groups.map(([title, rows, filter]) => <Card className="owner-insight-card" key={title}><h2>Follow-up performance by {title.toLowerCase()}</h2><div className="followup-performance-head"><span>{title}</span><span>Sent</span><span>Delivered</span><span>Failed</span></div><div className="insight-list">{rows.map((row) => <Link className="followup-performance-row" key={row.key} to={`/ai-followups?${filter}=${encodeURIComponent(row.key)}`}><strong>{sentenceLabel(row.name)}</strong><span>{row.sent}</span><span>{row.delivered}</span><span>{row.failed}</span></Link>)}{!rows.length && <div className="insight-empty">No follow-up activity yet.</div>}</div></Card>)}</div>;
+}
+
+function sentenceLabel(value) {
+  return String(value || "Unknown").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function sourceLabel(value) {

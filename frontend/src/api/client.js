@@ -1,7 +1,16 @@
 import axios from "axios";
 
-const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5002/api";
-const api = axios.create({ baseURL });
+const frontendHost = globalThis.location?.hostname;
+const isLocalFrontend = frontendHost === "localhost" || frontendHost === "127.0.0.1";
+// A stale VITE_API_URL (for example, an expired Dev Tunnel) must not hijack a
+// CRM that is itself opened locally. Keep remote deployments configurable.
+const baseURL = isLocalFrontend
+  ? `http://${frontendHost}:5002/api`
+  : import.meta.env.VITE_API_URL || "/api";
+// Keep network failures from leaving forms in a permanent loading state. The
+// backend's slowest external request (WhatsApp) is capped at 15 seconds, so a
+// 20-second browser timeout gives it time to return a useful error first.
+const api = axios.create({ baseURL, timeout: 20_000 });
 let refreshPromise = null;
 
 export const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;

@@ -50,7 +50,10 @@ export default function Login() {
         setChallenge(data);
         setResendIn(data.resend_in || 0);
       }
-      setToast({ type: "error", message: data?.message || "Unable to sign in. Please try again." });
+      const message = error.code === "ECONNABORTED"
+        ? "The backend did not respond in time. Confirm it is running on port 5002, then try again."
+        : data?.message || "Unable to sign in. Please try again.";
+      setToast({ type: "error", message });
     } finally {
       requestInFlight.current = false;
       setLoading(false);
@@ -72,7 +75,10 @@ export default function Login() {
         setChallenge(data);
         setResendIn(data.resend_in || 0);
       }
-      setToast({ type: "error", message: data?.message || "Unable to resend OTP." });
+      const message = error.code === "ECONNABORTED"
+        ? "The backend did not respond in time. Confirm it is running on port 5002, then try again."
+        : data?.message || "Unable to resend OTP.";
+      setToast({ type: "error", message });
     } finally {
       requestInFlight.current = false;
       setLoading(false);
