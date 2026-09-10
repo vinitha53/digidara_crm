@@ -548,7 +548,7 @@ export default function Leads() {
     { label: "Lead", key: "name", render: (r) => <><strong>{r.name}</strong><small>{r.email || "No email"} - {r.phone}</small></> },
     { label: "Category", key: "lead_category", render: (r) => <Badge tone={r.lead_category === "business" ? "teal" : r.lead_category === "internship" ? "amber" : "purple"}>{categoryLabel(r.lead_category)}</Badge> },
     { label: "Interest", key: "service", render: (r) => interestName(r) },
-    { label: "Source", key: "source", render: (r) => sourceLabel(r.source) },
+    { label: "Source", key: "source", render: (r) => sourceLabel(r.source, r.source_system) },
     { label: "Assigned Staff", key: "assigned_name", render: (r) => r.assigned_name || "Unassigned" },
     { label: "Date and Time", key: "created_at", render: (r) => <time dateTime={r.created_at}>{formatLeadCreatedAt(r.created_at)}</time> },
     { label: "Priority", key: "tag", render: (r) => <Badge tone={r.tag === "hot" ? "red" : r.tag === "warm" ? "amber" : "purple"}>{r.tag}</Badge> },
@@ -643,7 +643,7 @@ export default function Leads() {
         <section className="lead-results">
           <div className="lead-results-head"><div><strong>{resultTotal} matching lead{resultTotal === 1 ? "" : "s"}</strong><span>{categoryTabs.find((item) => item.value === categoryFilter)?.label || "All Leads"} · {smartStatusLabel(filter)}</span></div><small>Page {page} of {totalPages}</small></div>
           <div className="desktop-lead-table"><DataTable columns={columns} data={leads} onRow={openLead} empty="No leads match these filters." /></div>
-          <div className="mobile-lead-list">{leads.map((lead) => <article className="mobile-lead-card" onClick={() => openLead(lead)} key={lead.id}><header><div><strong>{lead.name}</strong><span>{interestName(lead)}</span></div><Badge tone={lead.status === "won" ? "teal" : lead.status === "lost" ? "red" : "purple"}>{statusLabels[lead.status] || lead.status}</Badge></header><div className="mobile-lead-badges"><Badge tone={lead.lead_category === "business" ? "teal" : lead.lead_category === "internship" ? "amber" : "purple"}>{categoryLabel(lead.lead_category)}</Badge><Badge tone={lead.tag === "hot" ? "red" : lead.tag === "warm" ? "amber" : "purple"}>{lead.tag}</Badge></div><dl><div><dt>Phone</dt><dd>{lead.phone}</dd></div><div><dt>Source</dt><dd>{sourceLabel(lead.source)}</dd></div><div><dt>Assigned Staff</dt><dd>{lead.assigned_name || "Unassigned"}</dd></div><div><dt>Date and Time</dt><dd><time dateTime={lead.created_at}>{formatLeadCreatedAt(lead.created_at)}</time></dd></div></dl><footer><label onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(lead.id)} onChange={() => toggleSelected(lead.id)} />Select</label><div className="row-actions icon-actions">{can(user, "leads", "update") && <button title="Edit lead" onClick={(event) => { event.stopPropagation(); openEdit(lead); }}><IconEdit size={16} /></button>}{can(user, "communication", "send") && <button title="Send WhatsApp" onClick={(event) => { event.stopPropagation(); openMessage(lead, "WhatsApp"); }}><IconBrandWhatsapp size={16} /></button>}</div></footer></article>)}{!leads.length && <div className="empty">No leads match these filters.</div>}</div>
+          <div className="mobile-lead-list">{leads.map((lead) => <article className="mobile-lead-card" onClick={() => openLead(lead)} key={lead.id}><header><div><strong>{lead.name}</strong><span>{interestName(lead)}</span></div><Badge tone={lead.status === "won" ? "teal" : lead.status === "lost" ? "red" : "purple"}>{statusLabels[lead.status] || lead.status}</Badge></header><div className="mobile-lead-badges"><Badge tone={lead.lead_category === "business" ? "teal" : lead.lead_category === "internship" ? "amber" : "purple"}>{categoryLabel(lead.lead_category)}</Badge><Badge tone={lead.tag === "hot" ? "red" : lead.tag === "warm" ? "amber" : "purple"}>{lead.tag}</Badge></div><dl><div><dt>Phone</dt><dd>{lead.phone}</dd></div><div><dt>Source</dt><dd>{sourceLabel(lead.source, lead.source_system)}</dd></div><div><dt>Assigned Staff</dt><dd>{lead.assigned_name || "Unassigned"}</dd></div><div><dt>Date and Time</dt><dd><time dateTime={lead.created_at}>{formatLeadCreatedAt(lead.created_at)}</time></dd></div></dl><footer><label onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(lead.id)} onChange={() => toggleSelected(lead.id)} />Select</label><div className="row-actions icon-actions">{can(user, "leads", "update") && <button title="Edit lead" onClick={(event) => { event.stopPropagation(); openEdit(lead); }}><IconEdit size={16} /></button>}{can(user, "communication", "send") && <button title="Send WhatsApp" onClick={(event) => { event.stopPropagation(); openMessage(lead, "WhatsApp"); }}><IconBrandWhatsapp size={16} /></button>}</div></footer></article>)}{!leads.length && <div className="empty">No leads match these filters.</div>}</div>
           {totalPages > 1 && <div className="lead-pagination"><button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button><span>{(page - 1) * perPage + 1}-{Math.min(page * perPage, resultTotal)} of {resultTotal}</span><button type="button" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>Next</button></div>}
         </section>
       ) : (
@@ -684,7 +684,7 @@ export default function Leads() {
                 <Badge tone={lead.tag === "hot" ? "red" : lead.tag === "warm" ? "amber" : "purple"}>{lead.tag}</Badge>
               </div>
               <span>{interestName(lead)}</span>
-              <div className="pipeline-card-meta"><Badge tone={lead.lead_category === "business" ? "teal" : lead.lead_category === "internship" ? "amber" : "purple"}>{categoryLabel(lead.lead_category)}</Badge><small>{sourceLabel(lead.source)}</small></div>
+              <div className="pipeline-card-meta"><Badge tone={lead.lead_category === "business" ? "teal" : lead.lead_category === "internship" ? "amber" : "purple"}>{categoryLabel(lead.lead_category)}</Badge><small>{sourceLabel(lead.source, lead.source_system)}</small></div>
               <small>{lead.phone} · {lead.assigned_name || "Unassigned"}</small>
               <small className="lead-created-time">Date and Time: <time dateTime={lead.created_at}>{formatLeadCreatedAt(lead.created_at)}</time></small>
               {lead.status === "lost" && <small>Reason: {lead.lost_reason || "Not specified"}</small>}
@@ -731,7 +731,7 @@ export default function Leads() {
           <p><strong>Phone:</strong> {drawer.phone}</p>
           <p><strong>Gmail:</strong> {drawer.email || "-"}</p>
           <p><strong>Interest:</strong> {interestName(drawer)}</p>
-          <p><strong>Source:</strong> {sourceLabel(drawer.source)}</p>
+          <p><strong>Source:</strong> {sourceLabel(drawer.source, drawer.source_system)}</p>
           <p><strong>Assigned Staff:</strong> {drawer.assigned_name || "Unassigned"}</p>
           {drawer.status === "lost" && <p><strong>Why Lost:</strong> {drawer.lost_reason || "-"}</p>}
           {drawer.status === "lost" && drawer.lost_reason_detail && <p><strong>Loss Details:</strong> {drawer.lost_reason_detail}</p>}
@@ -890,7 +890,8 @@ function categoryTabIcon(value) {
   return <IconLayoutList size={19} />;
 }
 
-function sourceLabel(value) {
+function sourceLabel(value, sourceSystem) {
+  if (sourceSystem === "google_form") return "Google Form";
   return sources.find((item) => item.value === value)?.label || "Unknown";
 }
 
