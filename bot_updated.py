@@ -41,24 +41,26 @@ def step(emoji, msg):
 # ─────────────────────────────────────────────────────────────
 # CREDENTIALS & CONFIG
 # ─────────────────────────────────────────────────────────────
-PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID", "957554507448611")
-WHATSAPP_TOKEN  = os.getenv("WHATSAPP_TOKEN",  "YOUR_PERMANENT_TOKEN_HERE")
-VERIFY_TOKEN    = os.getenv("VERIFY_TOKEN",    "digidara_webhook_2026")
+PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID") or os.getenv("PHONE_NUMBER_ID", "")
+WHATSAPP_TOKEN  = os.getenv("WHATSAPP_ACCESS_TOKEN") or os.getenv("WHATSAPP_TOKEN", "")
+VERIFY_TOKEN    = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN") or os.getenv("VERIFY_TOKEN", "")
+META_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET") or os.getenv("META_APP_SECRET", "")
+WHATSAPP_GRAPH_API_VERSION = os.getenv("WHATSAPP_GRAPH_API_VERSION", "v23.0").strip("/")
 def parse_phone_numbers(value: str) -> list:
     numbers = [re.sub(r"\D", "", item) for item in re.split(r"[,;\s]+", value or "")]
     return list(dict.fromkeys(number for number in numbers if number))
 
 
-ADMIN_NUMBERS = parse_phone_numbers(os.getenv("OWNER_NUMBER", "919500406945"))
+ADMIN_NUMBERS = parse_phone_numbers(os.getenv("OWNER_NUMBER", ""))
 OPERATIONS_NUMBERS = parse_phone_numbers(os.getenv("OPERATIONS_NUMBERS", ""))
 OWNER_NUMBERS = list(dict.fromkeys(ADMIN_NUMBERS + OPERATIONS_NUMBERS))
-OWNER_NUMBER    = OWNER_NUMBERS[0] if OWNER_NUMBERS else "919500406945"
+OWNER_NUMBER    = OWNER_NUMBERS[0] if OWNER_NUMBERS else ""
 if len(OWNER_NUMBERS) != 3:
     log.warning(
         "Team notifications expect 3 recipients (1 admin + 2 operations); "
         f"currently configured: {len(OWNER_NUMBERS)}"
     )
-SUMMARY_SECRET  = os.getenv("SUMMARY_SECRET",  "digidara123")
+SUMMARY_SECRET  = os.getenv("SUMMARY_SECRET", "")
 PORT            = int(os.getenv("PORT", 3002))
 COMPANY_DOMAIN  = "https://www.digidaratechnologies.com"
 
@@ -67,6 +69,8 @@ CRM_INTEGRATION_API_KEY = os.getenv("CRM_INTEGRATION_API_KEY", "").strip()
 CRM_INTEGRATION_SIGNING_SECRET = os.getenv("CRM_INTEGRATION_SIGNING_SECRET", "").strip()
 CRM_PUSH_TIMEOUT_SECONDS = max(5, int(os.getenv("CRM_PUSH_TIMEOUT_SECONDS", "15")))
 CRM_PUSH_RETRY_COUNT = max(1, min(5, int(os.getenv("CRM_PUSH_RETRY_COUNT", "3"))))
+CRM_CAMPAIGN_WEBHOOK_URL = os.getenv("CRM_CAMPAIGN_WEBHOOK_URL", "").strip()
+MARKETING_OPT_OUT_WORDS = {"stop", "unsubscribe", "cancel", "end", "quit", "opt out", "opt-out"}
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL   = "gpt-4o"
@@ -815,7 +819,7 @@ def _wa_send(to: str, body: str):
     }).encode("utf-8")
     try:
         conn = http.client.HTTPSConnection("graph.facebook.com", timeout=20)
-        conn.request("POST", f"/v18.0/{PHONE_NUMBER_ID}/messages", payload, {
+        conn.request("POST", f"/{WHATSAPP_GRAPH_API_VERSION}/{PHONE_NUMBER_ID}/messages", payload, {
             "Authorization" : f"Bearer {WHATSAPP_TOKEN}",
             "Content-Type"  : "application/json",
             "Content-Length": str(len(payload))
@@ -934,7 +938,7 @@ def send_wa_template(to: str, template_name: str, body_params=None, preserve_lin
     }, ensure_ascii=False).encode("utf-8")
     try:
         conn = http.client.HTTPSConnection("graph.facebook.com", timeout=20)
-        conn.request("POST", f"/v18.0/{PHONE_NUMBER_ID}/messages", payload, {
+        conn.request("POST", f"/{WHATSAPP_GRAPH_API_VERSION}/{PHONE_NUMBER_ID}/messages", payload, {
             "Authorization": f"Bearer {WHATSAPP_TOKEN}",
             "Content-Type": "application/json",
             "Content-Length": str(len(payload))
@@ -958,7 +962,7 @@ def mark_read(mid: str):
     }).encode("utf-8")
     try:
         conn = http.client.HTTPSConnection("graph.facebook.com", timeout=10)
-        conn.request("POST", f"/v18.0/{PHONE_NUMBER_ID}/messages", payload, {
+        conn.request("POST", f"/{WHATSAPP_GRAPH_API_VERSION}/{PHONE_NUMBER_ID}/messages", payload, {
             "Authorization": f"Bearer {WHATSAPP_TOKEN}",
             "Content-Type" : "application/json",
             "Content-Length": str(len(payload))
@@ -1387,6 +1391,45 @@ def push_lead_to_crm(
     return False
 
 
+def forward_campaign_webhook(raw_body: bytes):
+    """Forward the already Meta-verified event to CRM using the shared HMAC secret."""
+    if not CRM_CAMPAIGN_WEBHOOK_URL or not CRM_INTEGRATION_SIGNING_SECRET:
+        return False
+    parsed = urlsplit(CRM_CAMPAIGN_WEBHOOK_URL)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        log.error("CRM campaign webhook forward URL is invalid")
+        return False
+    timestamp = str(int(time.time()))
+    signature = hmac.new(
+        CRM_INTEGRATION_SIGNING_SECRET.encode("utf-8"),
+        timestamp.encode("utf-8") + b"." + raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+    path = parsed.path or "/"
+    if parsed.query:
+        path += "?" + parsed.query
+    connection = None
+    try:
+        connection_class = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+        connection = connection_class(parsed.hostname, parsed.port, timeout=CRM_PUSH_TIMEOUT_SECONDS)
+        connection.request("POST", path, body=raw_body, headers={
+            "Content-Type": "application/json",
+            "X-CRM-Timestamp": timestamp,
+            "X-CRM-Signature": signature,
+        })
+        response = connection.getresponse()
+        response.read()
+        if response.status not in (200, 201):
+            log.warning("CRM campaign webhook forward returned HTTP %s", response.status)
+        return response.status in (200, 201)
+    except Exception as exc:
+        log.warning("CRM campaign webhook forward failed: %s", exc)
+        return False
+    finally:
+        if connection:
+            connection.close()
+
+
 def handle_message(phone: str, text: str):
     cancel_inactivity_summary(phone)
     step("📩", f"New message from +{phone}")
@@ -1702,16 +1745,28 @@ def verify():
         request.args.get("hub.verify_token"),
         request.args.get("hub.challenge")
     )
-    if mode == "subscribe" and token == VERIFY_TOKEN:
+    if VERIFY_TOKEN and mode == "subscribe" and hmac.compare_digest(token or "", VERIFY_TOKEN):
         log.info("✅ Webhook verified!")
         return challenge, 200
     return "Forbidden", 403
 
 @app.post("/webhook")
 def receive():
-    body = request.get_json(silent=True) or {}
+    raw_body = request.get_data(cache=True) or b""
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    expected = "sha256=" + hmac.new(META_APP_SECRET.encode(), raw_body, hashlib.sha256).hexdigest() if META_APP_SECRET else ""
+    if not META_APP_SECRET or not hmac.compare_digest(signature, expected):
+        log.warning("Rejected WhatsApp webhook with an invalid app signature")
+        return "Forbidden", 403
+    try:
+        body = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return "Bad Request", 400
     if body.get("object") != "whatsapp_business_account":
         return "OK", 200
+
+    if CRM_CAMPAIGN_WEBHOOK_URL and CRM_INTEGRATION_SIGNING_SECRET:
+        threading.Thread(target=forward_campaign_webhook, args=(raw_body,), daemon=True).start()
 
     for entry in body.get("entry", []):
         for change in entry.get("changes", []):
@@ -1729,6 +1784,16 @@ def receive():
 
                 if mtype == "text":
                     text = msg["text"]["body"].strip()
+                    if text.casefold() in MARKETING_OPT_OUT_WORDS:
+                        # The verified payload is already forwarded to the CRM,
+                        # which records consent withdrawal and cancels future sends.
+                        send_wa(
+                            phone,
+                            "You have been opted out of promotional WhatsApp messages. "
+                            "You can still contact us here for support.",
+                        )
+                        log.info("Marketing opt-out acknowledged; chatbot dispatch skipped")
+                        continue
                     log.info(f'💬 Received: "{text}"')
                     log.info(f"🔀 Dispatching to handler thread...")
                     def _safe_handle(p=phone, t=text):
@@ -2025,8 +2090,8 @@ if __name__ == "__main__":
     print(f"📡  Webhook   : http://localhost:{PORT}/webhook")
     print(f"OpenAI    : {OPENAI_MODEL}  (needs OPENAI_API_KEY in .env)")
     print(f"🤖  Ollama FB : http://{OLLAMA_HOST}:{OLLAMA_PORT}  ({OLLAMA_MODEL})")
-    print(f"🧪  Summary   : http://localhost:{PORT}/send-summary?secret={SUMMARY_SECRET}")
-    print(f"📊  Stats     : http://localhost:{PORT}/stats?secret={SUMMARY_SECRET}")
+    print(f"🧪  Summary   : http://localhost:{PORT}/send-summary (secret required)")
+    print(f"📊  Stats     : http://localhost:{PORT}/stats (secret required)")
     print(f"🔍  Ollama ck : http://localhost:{PORT}/ollama-status")
     print(f"⏰  Summary   : Daily at {SUMMARY_TIME_EVENING} {APP_TZ_NAME}")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

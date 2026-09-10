@@ -16,7 +16,7 @@ PERMISSION_PAGES = [
     {"key": "ai_chat", "label": "AI Chat", "actions": ["view", "ask"]},
     {"key": "ai_followups", "label": "AI Follow-ups", "actions": ["view", "generate", "send", "run"]},
     {"key": "workflows", "label": "Workflow Automation", "actions": ["view", "manage"]},
-    {"key": "campaigns", "label": "Campaigns", "actions": ["view", "create", "update", "send", "schedule"]},
+    {"key": "campaigns", "label": "Campaigns", "actions": ["view", "create", "update", "send", "schedule", "pause", "cancel", "export", "manage_templates"]},
     {"key": "communication", "label": "Communication", "actions": ["view", "send"]},
     {"key": "whatsapp_messages", "label": "WhatsApp Message", "actions": ["view"]},
     {"key": "reports", "label": "Reports", "actions": ["view", "export"]},

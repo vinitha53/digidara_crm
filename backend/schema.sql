@@ -160,6 +160,16 @@ CREATE TABLE IF NOT EXISTS leads (
     source_system        VARCHAR(40) NULL,
     external_id          VARCHAR(190) NULL,
     external_created_at  DATETIME NULL,
+    destination          VARCHAR(190) NULL,
+    travel_date          DATE NULL,
+    marketing_opt_in     TINYINT(1) NULL,
+    marketing_opt_in_at  DATETIME NULL,
+    marketing_opt_in_source VARCHAR(80) NULL,
+    whatsapp_opt_in      TINYINT(1) NULL,
+    opted_out            TINYINT(1) NOT NULL DEFAULT 0,
+    opted_out_at         DATETIME NULL,
+    opted_out_reason     VARCHAR(255) NULL,
+    last_marketing_message_at DATETIME NULL,
 
     PRIMARY KEY (id),
     KEY idx_leads_assigned (assigned_to),
@@ -654,30 +664,143 @@ CREATE TABLE IF NOT EXISTS workflow_rule_runs (
 
 CREATE TABLE IF NOT EXISTS campaigns (
     id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    agency_id     INT NULL,
     name          VARCHAR(190) NOT NULL,
-    channel       VARCHAR(40) NOT NULL,
-    audience      VARCHAR(190) NOT NULL,
+    channel       VARCHAR(40) NOT NULL DEFAULT 'WhatsApp',
+    audience      VARCHAR(190) NOT NULL DEFAULT 'All leads',
     message_body  TEXT NOT NULL,
     from_name     VARCHAR(190) NOT NULL DEFAULT 'Digidara Technologies',
+    template_name VARCHAR(190) NULL,
+    template_language VARCHAR(40) NULL,
+    template_category VARCHAR(40) NULL,
+    template_snapshot JSON NULL,
+    variable_mapping JSON NULL,
+    header_type VARCHAR(40) NULL,
+    media_id VARCHAR(190) NULL,
+    media_filename VARCHAR(255) NULL,
+    audience_type VARCHAR(40) NOT NULL DEFAULT 'all',
+    audience_filter JSON NULL,
+    audience_snapshot JSON NULL,
     status        VARCHAR(30) NOT NULL DEFAULT 'draft',
     scheduled_at  DATETIME NULL,
+    started_at DATETIME NULL,
+    completed_at DATETIME NULL,
+    paused_at DATETIME NULL,
+    cancelled_at DATETIME NULL,
     sent_at       DATETIME NULL,
+    total_count INT NOT NULL DEFAULT 0,
+    eligible_count INT NOT NULL DEFAULT 0,
+    queued_count INT NOT NULL DEFAULT 0,
     sent_count    INT NOT NULL DEFAULT 0,
+    delivered_count INT NOT NULL DEFAULT 0,
+    read_count INT NOT NULL DEFAULT 0,
+    replied_count INT NOT NULL DEFAULT 0,
+    failed_count INT NOT NULL DEFAULT 0,
+    skipped_count INT NOT NULL DEFAULT 0,
+    opted_out_count INT NOT NULL DEFAULT 0,
     opened_count  INT NOT NULL DEFAULT 0,
     reply_count   INT NOT NULL DEFAULT 0,
     created_by    INT UNSIGNED NULL,
     created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
     KEY idx_campaigns_status (status),
+    KEY idx_campaigns_agency (agency_id),
     KEY idx_campaigns_channel (channel),
     KEY idx_campaigns_created_by (created_by),
     KEY idx_campaigns_created_at (created_at),
     CONSTRAINT fk_campaigns_created_by
         FOREIGN KEY (created_by) REFERENCES users(id)
         ON UPDATE CASCADE ON DELETE SET NULL,
-    CONSTRAINT chk_campaigns_status CHECK (status IN ('draft', 'scheduled', 'sent')),
+    CONSTRAINT chk_campaigns_status CHECK (status IN ('draft', 'validated', 'scheduled', 'queued', 'sending', 'paused', 'completed', 'cancelled', 'failed', 'sent')),
     CONSTRAINT chk_campaigns_counts CHECK (sent_count >= 0 AND opened_count >= 0 AND reply_count >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS campaign_recipients (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    agency_id INT NULL,
+    campaign_id INT UNSIGNED NOT NULL,
+    lead_id INT UNSIGNED NULL,
+    customer_id INT UNSIGNED NULL,
+    recipient_name VARCHAR(190) NULL,
+    recipient_phone VARCHAR(40) NULL,
+    normalized_phone VARCHAR(32) NOT NULL,
+    rendered_variables JSON NULL,
+    provider_message_id VARCHAR(190) NULL,
+    provider_response LONGTEXT NULL,
+    status VARCHAR(40) NOT NULL DEFAULT 'queued',
+    skip_reason TEXT NULL,
+    error_code VARCHAR(80) NULL,
+    error_message TEXT NULL,
+    queued_at DATETIME NULL,
+    sending_at DATETIME NULL,
+    accepted_at DATETIME NULL,
+    sent_at DATETIME NULL,
+    delivered_at DATETIME NULL,
+    read_at DATETIME NULL,
+    replied_at DATETIME NULL,
+    last_event_at DATETIME NULL,
+    reply_count INT NOT NULL DEFAULT 0,
+    last_reply_text TEXT NULL,
+    last_reply_at DATETIME NULL,
+    retry_count INT NOT NULL DEFAULT 0,
+    next_retry_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_campaign_recipient_phone (campaign_id, normalized_phone),
+    UNIQUE KEY uq_campaign_recipient_provider (provider_message_id),
+    KEY idx_campaign_recipients_agency (agency_id),
+    KEY idx_campaign_recipients_campaign (campaign_id),
+    KEY idx_campaign_recipients_lead (lead_id),
+    KEY idx_campaign_recipients_status (status),
+    KEY idx_campaign_recipients_provider (provider_message_id),
+    CONSTRAINT fk_campaign_recipients_campaign FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    CONSTRAINT fk_campaign_recipients_lead FOREIGN KEY (lead_id) REFERENCES leads(id) ON UPDATE CASCADE ON DELETE SET NULL,
+    CONSTRAINT fk_campaign_recipients_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS whatsapp_templates (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    agency_id INT NULL,
+    meta_template_id VARCHAR(190) NOT NULL,
+    name VARCHAR(190) NOT NULL,
+    language VARCHAR(40) NOT NULL,
+    category VARCHAR(40) NULL,
+    status VARCHAR(40) NOT NULL,
+    components JSON NOT NULL,
+    header_type VARCHAR(40) NULL,
+    body_text TEXT NULL,
+    footer_text TEXT NULL,
+    buttons JSON NULL,
+    last_synced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_whatsapp_template_agency_meta (agency_id, meta_template_id),
+    KEY idx_whatsapp_templates_agency (agency_id),
+    KEY idx_whatsapp_templates_name (name),
+    KEY idx_whatsapp_templates_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS message_events (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    agency_id INT NULL,
+    provider_message_id VARCHAR(190) NULL,
+    campaign_recipient_id INT UNSIGNED NULL,
+    event_type VARCHAR(40) NOT NULL,
+    event_timestamp DATETIME NULL,
+    raw_event JSON NULL,
+    event_hash CHAR(64) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_message_events_hash (event_hash),
+    KEY idx_message_events_agency (agency_id),
+    KEY idx_message_events_provider (provider_message_id),
+    KEY idx_message_events_recipient (campaign_recipient_id),
+    KEY idx_message_events_type (event_type),
+    CONSTRAINT fk_message_events_recipient FOREIGN KEY (campaign_recipient_id) REFERENCES campaign_recipients(id) ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS message_logs (
@@ -1067,6 +1190,45 @@ CALL add_column_if_missing('leads', 'ai_followup_outcome', 'VARCHAR(80) NULL');
 CALL add_column_if_missing('leads', 'source_system', 'VARCHAR(40) NULL');
 CALL add_column_if_missing('leads', 'external_id', 'VARCHAR(190) NULL');
 CALL add_column_if_missing('leads', 'external_created_at', 'DATETIME NULL');
+CALL add_column_if_missing('leads', 'destination', 'VARCHAR(190) NULL');
+CALL add_column_if_missing('leads', 'travel_date', 'DATE NULL');
+CALL add_column_if_missing('leads', 'marketing_opt_in', 'TINYINT(1) NULL');
+CALL add_column_if_missing('leads', 'marketing_opt_in_at', 'DATETIME NULL');
+CALL add_column_if_missing('leads', 'marketing_opt_in_source', 'VARCHAR(80) NULL');
+CALL add_column_if_missing('leads', 'whatsapp_opt_in', 'TINYINT(1) NULL');
+CALL add_column_if_missing('leads', 'opted_out', 'TINYINT(1) NOT NULL DEFAULT 0');
+CALL add_column_if_missing('leads', 'opted_out_at', 'DATETIME NULL');
+CALL add_column_if_missing('leads', 'opted_out_reason', 'VARCHAR(255) NULL');
+CALL add_column_if_missing('leads', 'last_marketing_message_at', 'DATETIME NULL');
+
+CALL add_column_if_missing('campaigns', 'agency_id', 'INT NULL');
+CALL add_column_if_missing('campaigns', 'template_name', 'VARCHAR(190) NULL');
+CALL add_column_if_missing('campaigns', 'template_language', 'VARCHAR(40) NULL');
+CALL add_column_if_missing('campaigns', 'template_category', 'VARCHAR(40) NULL');
+CALL add_column_if_missing('campaigns', 'template_snapshot', 'JSON NULL');
+CALL add_column_if_missing('campaigns', 'variable_mapping', 'JSON NULL');
+CALL add_column_if_missing('campaigns', 'header_type', 'VARCHAR(40) NULL');
+CALL add_column_if_missing('campaigns', 'media_id', 'VARCHAR(190) NULL');
+CALL add_column_if_missing('campaigns', 'media_filename', 'VARCHAR(255) NULL');
+CALL add_column_if_missing('campaigns', 'audience_type', 'VARCHAR(40) NOT NULL DEFAULT ''all''');
+CALL add_column_if_missing('campaigns', 'audience_filter', 'JSON NULL');
+CALL add_column_if_missing('campaigns', 'audience_snapshot', 'JSON NULL');
+CALL add_column_if_missing('campaigns', 'started_at', 'DATETIME NULL');
+CALL add_column_if_missing('campaigns', 'completed_at', 'DATETIME NULL');
+CALL add_column_if_missing('campaigns', 'paused_at', 'DATETIME NULL');
+CALL add_column_if_missing('campaigns', 'cancelled_at', 'DATETIME NULL');
+CALL add_column_if_missing('campaigns', 'total_count', 'INT NOT NULL DEFAULT 0');
+CALL add_column_if_missing('campaigns', 'eligible_count', 'INT NOT NULL DEFAULT 0');
+CALL add_column_if_missing('campaigns', 'queued_count', 'INT NOT NULL DEFAULT 0');
+CALL add_column_if_missing('campaigns', 'delivered_count', 'INT NOT NULL DEFAULT 0');
+CALL add_column_if_missing('campaigns', 'read_count', 'INT NOT NULL DEFAULT 0');
+CALL add_column_if_missing('campaigns', 'replied_count', 'INT NOT NULL DEFAULT 0');
+CALL add_column_if_missing('campaigns', 'failed_count', 'INT NOT NULL DEFAULT 0');
+CALL add_column_if_missing('campaigns', 'skipped_count', 'INT NOT NULL DEFAULT 0');
+CALL add_column_if_missing('campaigns', 'opted_out_count', 'INT NOT NULL DEFAULT 0');
+CALL add_column_if_missing('campaigns', 'updated_at', 'DATETIME NULL');
+CALL drop_check_if_exists('campaigns', 'chk_campaigns_status');
+ALTER TABLE campaigns ADD CONSTRAINT chk_campaigns_status CHECK (status IN ('draft', 'validated', 'scheduled', 'queued', 'sending', 'paused', 'completed', 'cancelled', 'failed', 'sent'));
 
 CALL modify_column_if_exists('leads', 'agency_id', 'INT NULL DEFAULT NULL');
 
@@ -1351,7 +1513,7 @@ VALUES
     ('admin', 'ai_chat', 'view', 1), ('admin', 'ai_chat', 'ask', 1),
     ('admin', 'ai_followups', 'view', 1), ('admin', 'ai_followups', 'generate', 1), ('admin', 'ai_followups', 'send', 1), ('admin', 'ai_followups', 'run', 1),
     ('admin', 'workflows', 'view', 1), ('admin', 'workflows', 'manage', 1),
-    ('admin', 'campaigns', 'view', 1), ('admin', 'campaigns', 'create', 1), ('admin', 'campaigns', 'update', 1), ('admin', 'campaigns', 'send', 1), ('admin', 'campaigns', 'schedule', 1),
+    ('admin', 'campaigns', 'view', 1), ('admin', 'campaigns', 'create', 1), ('admin', 'campaigns', 'update', 1), ('admin', 'campaigns', 'send', 1), ('admin', 'campaigns', 'schedule', 1), ('admin', 'campaigns', 'pause', 1), ('admin', 'campaigns', 'cancel', 1), ('admin', 'campaigns', 'export', 1), ('admin', 'campaigns', 'manage_templates', 1),
     ('admin', 'communication', 'view', 1), ('admin', 'communication', 'send', 1),
     ('admin', 'whatsapp_messages', 'view', 1),
     ('admin', 'reports', 'view', 1), ('admin', 'reports', 'export', 1),
@@ -1366,7 +1528,7 @@ VALUES
     ('staff', 'ai_chat', 'view', 1), ('staff', 'ai_chat', 'ask', 1),
     ('staff', 'ai_followups', 'view', 1), ('staff', 'ai_followups', 'generate', 1), ('staff', 'ai_followups', 'send', 1), ('staff', 'ai_followups', 'run', 0),
     ('staff', 'workflows', 'view', 0), ('staff', 'workflows', 'manage', 0),
-    ('staff', 'campaigns', 'view', 0), ('staff', 'campaigns', 'create', 0), ('staff', 'campaigns', 'update', 0), ('staff', 'campaigns', 'send', 0), ('staff', 'campaigns', 'schedule', 0),
+    ('staff', 'campaigns', 'view', 0), ('staff', 'campaigns', 'create', 0), ('staff', 'campaigns', 'update', 0), ('staff', 'campaigns', 'send', 0), ('staff', 'campaigns', 'schedule', 0), ('staff', 'campaigns', 'pause', 0), ('staff', 'campaigns', 'cancel', 0), ('staff', 'campaigns', 'export', 0), ('staff', 'campaigns', 'manage_templates', 0),
     ('staff', 'communication', 'view', 1), ('staff', 'communication', 'send', 1),
     ('staff', 'whatsapp_messages', 'view', 1),
     ('staff', 'reports', 'view', 0), ('staff', 'reports', 'export', 0),

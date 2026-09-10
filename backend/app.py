@@ -39,6 +39,9 @@ MYSQL_REQUIRED_TABLES = {
     "customer_documents",
     "tasks",
     "campaigns",
+    "campaign_recipients",
+    "whatsapp_templates",
+    "message_events",
     "message_logs",
     "communication_summaries",
     "meeting_invites",
@@ -161,6 +164,16 @@ def ensure_lead_columns(app):
         "ai_followup_outcome": "TEXT",
         "ai_followup_stop_reason": "TEXT",
         "ai_followup_stopped_at": "DATETIME",
+        "destination": "TEXT",
+        "travel_date": "DATE",
+        "marketing_opt_in": "INTEGER",
+        "marketing_opt_in_at": "DATETIME",
+        "marketing_opt_in_source": "TEXT",
+        "whatsapp_opt_in": "INTEGER",
+        "opted_out": "INTEGER NOT NULL DEFAULT 0",
+        "opted_out_at": "DATETIME",
+        "opted_out_reason": "TEXT",
+        "last_marketing_message_at": "DATETIME",
     }
     with app.app_context():
         existing = {row[1] for row in db.session.execute(text("PRAGMA table_info(leads)")).all()}
@@ -180,6 +193,45 @@ def ensure_lead_columns(app):
                 ELSE 'website'
             END
         """))
+        db.session.commit()
+
+
+def ensure_campaign_columns(app):
+    if not is_sqlite(app):
+        return
+    columns = {
+        "agency_id": "INTEGER",
+        "template_name": "TEXT",
+        "template_language": "TEXT",
+        "template_category": "TEXT",
+        "template_snapshot": "JSON",
+        "variable_mapping": "JSON",
+        "header_type": "TEXT",
+        "media_id": "TEXT",
+        "media_filename": "TEXT",
+        "audience_type": "TEXT DEFAULT 'all'",
+        "audience_filter": "JSON",
+        "audience_snapshot": "JSON",
+        "started_at": "DATETIME",
+        "completed_at": "DATETIME",
+        "paused_at": "DATETIME",
+        "cancelled_at": "DATETIME",
+        "total_count": "INTEGER NOT NULL DEFAULT 0",
+        "eligible_count": "INTEGER NOT NULL DEFAULT 0",
+        "queued_count": "INTEGER NOT NULL DEFAULT 0",
+        "delivered_count": "INTEGER NOT NULL DEFAULT 0",
+        "read_count": "INTEGER NOT NULL DEFAULT 0",
+        "replied_count": "INTEGER NOT NULL DEFAULT 0",
+        "failed_count": "INTEGER NOT NULL DEFAULT 0",
+        "skipped_count": "INTEGER NOT NULL DEFAULT 0",
+        "opted_out_count": "INTEGER NOT NULL DEFAULT 0",
+        "updated_at": "DATETIME",
+    }
+    with app.app_context():
+        existing = {row[1] for row in db.session.execute(text("PRAGMA table_info(campaigns)")).all()}
+        for name, kind in columns.items():
+            if name not in existing:
+                db.session.execute(text(f"ALTER TABLE campaigns ADD COLUMN {name} {kind}"))
         db.session.commit()
 
 
@@ -446,6 +498,7 @@ def create_app():
             db.create_all()
         ensure_company_settings_columns(app)
         ensure_lead_columns(app)
+        ensure_campaign_columns(app)
         ensure_lead_integration_columns(app)
         ensure_task_planning_columns(app)
         ensure_user_access_columns(app)

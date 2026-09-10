@@ -19,7 +19,10 @@ ALLOWED = [
     "name", "phone", "email", "company", "service", "lead_category", "qualification",
     "program_duration", "course_name", "internship_name", "business_name",
     "business_requirement", "source", "tag", "status", "deal_value", "probability",
-    "expected_close_date", "lost_reason", "lost_reason_detail", "assigned_to", "notes", "city"
+    "expected_close_date", "lost_reason", "lost_reason_detail", "assigned_to", "notes", "city",
+    "destination", "travel_date", "marketing_opt_in", "marketing_opt_in_at",
+    "marketing_opt_in_source", "whatsapp_opt_in", "opted_out", "opted_out_at",
+    "opted_out_reason"
 ]
 SOURCES = {"website", "chatbot", "whatsapp", "email", "inperson"}
 IST_OFFSET = timedelta(hours=5, minutes=30)
@@ -76,6 +79,28 @@ def normalize_lead(lead):
         lead.course_name = None
         lead.internship_name = None
         lead.company = lead.business_name or lead.company
+    return lead
+
+
+def normalize_consent(lead, data, actor_id=None):
+    now = datetime.utcnow()
+    if (lead.marketing_opt_in or lead.whatsapp_opt_in) and not lead.marketing_opt_in_at:
+        lead.marketing_opt_in_at = now
+        lead.marketing_opt_in_source = lead.marketing_opt_in_source or "crm_manual"
+    if data.get("opted_out") is True:
+        lead.opted_out_at = lead.opted_out_at or now
+        lead.opted_out_reason = lead.opted_out_reason or "Marked Do Not Message in CRM"
+        if lead.id:
+            cancel_followups(lead, "Lead opted out of WhatsApp communication", actor_id)
+        else:
+            lead.ai_followup_enabled = False
+            lead.ai_next_followup_at = None
+            lead.ai_followup_paused_reason = "Lead opted out of WhatsApp communication"
+            lead.ai_followup_stop_reason = "Lead opted out of WhatsApp communication"
+            lead.ai_followup_stopped_at = now
+    elif data.get("opted_out") is False:
+        lead.opted_out_at = None
+        lead.opted_out_reason = None
     return lead
 
 
@@ -249,6 +274,14 @@ def duplicates():
     return jsonify(result)
 
 
+@bp.get("/export")
+@permission_required("campaigns", "export")
+def export_leads():
+    # Reuse the campaign audience stream so filters and authorization cannot drift.
+    from routes.campaigns import filters_from_request, lead_export_response
+    return lead_export_response(filters_from_request(), "leads.csv")
+
+
 @bp.post("/bulk")
 @permission_required("leads", "update")
 def bulk_update():
@@ -318,8 +351,11 @@ def create_lead():
         assigned_staff = actor
         data["assigned_to"] = actor.id
     lead = normalize_lead(update_model(Lead(), data, ALLOWED))
+    normalize_consent(lead, data, actor.id)
     if "expected_close_date" in data:
         lead.expected_close_date = parse_date(data["expected_close_date"]) if data.get("expected_close_date") else None
+    if "travel_date" in data:
+        lead.travel_date = parse_date(data["travel_date"]) if data.get("travel_date") else None
     db.session.add(lead)
     db.session.flush()
     score_and_apply_lead(lead)
@@ -386,12 +422,15 @@ def update(id):
         return jsonify({"message": "Lead conversion permission required"}), 403
     old_status = lead.status
     normalize_lead(update_model(lead, data, ALLOWED))
+    normalize_consent(lead, data, actor.id)
     if lead.status in STOP_STATUSES and lead.status != "won":
         cancel_followups(lead, f"Lead status stops automation: {lead.status}", current_user().id)
     if new_assignee and previous_assignee_id != lead.assigned_to:
         send_lead_assignment_notification(lead, new_assignee)
     if "expected_close_date" in data:
         lead.expected_close_date = parse_date(data["expected_close_date"]) if data.get("expected_close_date") else None
+    if "travel_date" in data:
+        lead.travel_date = parse_date(data["travel_date"]) if data.get("travel_date") else None
     rescore_if_changed(lead, previous_scoring_signature)
     if old_status != "won" and lead.status == "won":
         convert_won_lead_to_customer(lead)

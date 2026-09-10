@@ -38,6 +38,10 @@ FIELD_ALIASES = {
     "business_requirement": {"businessrequirement", "projectrequirement", "requirement"},
     "notes": {"notes", "note", "message", "comments", "comment", "additionalinformation", "query"},
     "city": {"city", "location", "place"},
+    "destination": {"destination", "traveldestination", "preferredlocation"},
+    "travel_date": {"traveldate", "preferredtraveldate"},
+    "marketing_opt_in": {"marketingoptin", "marketingconsent", "promotionalconsent"},
+    "whatsapp_opt_in": {"whatsappoptin", "whatsappconsent"},
     "status": {"status", "leadstatus"},
     "external_id": {"externalid", "responseid", "formresponseid", "id"},
     "external_created_at": {"externalcreatedat", "createdat", "timestamp", "submittedat", "submissiontime"},
@@ -135,6 +139,10 @@ def canonical_field(label):
         return "program_duration"
     if "timestamp" in key or "submittedat" in key or "submissiontime" in key:
         return "external_created_at"
+    if "consent" in key and "whatsapp" in key:
+        return "whatsapp_opt_in"
+    if "consent" in key or "marketingoptin" in key:
+        return "marketing_opt_in"
     if "internship" in key:
         return "internship_name"
     if "course" in key:
@@ -256,6 +264,8 @@ def normalize_payload(data):
         "status": status if status in STATUSES else "new",
         "notes": clean(data.get("notes") or data.get("message") or data.get("last_message")) or None,
         "city": clean(data.get("city")) or None,
+        "destination": clean(data.get("destination")) or None,
+        "travel_date": parse_datetime(data.get("travel_date")).date() if parse_datetime(data.get("travel_date")) else None,
         "source_system": source_system,
         "external_id": clean(data.get("external_id") or data.get("id") or data.get("message_id")) or None,
         "external_created_at": parse_datetime(
@@ -265,6 +275,10 @@ def normalize_payload(data):
     }
     if not lead["phone"]:
         raise ValueError("Phone is required")
+    affirmative = {"1", "true", "yes", "y", "consent", "agreed", "i agree"}
+    for consent_field in ("marketing_opt_in", "whatsapp_opt_in"):
+        if data.get(consent_field) not in (None, ""):
+            lead[consent_field] = clean(data.get(consent_field)).lower() in affirmative
     return lead
 
 
@@ -334,6 +348,9 @@ def receive_lead():
             db.session.add(lead)
         previous_scoring_signature = lead_scoring_signature(lead) if not is_new else None
         apply_lead_fields(lead, fields)
+        if (lead.marketing_opt_in or lead.whatsapp_opt_in) and not lead.marketing_opt_in_at:
+            lead.marketing_opt_in_at = fields.get("external_created_at") or datetime.utcnow()
+            lead.marketing_opt_in_source = fields["source_system"]
         if is_new and fields["source_system"] == "google_form" and fields.get("external_created_at"):
             lead.created_at = fields["external_created_at"]
         db.session.flush()

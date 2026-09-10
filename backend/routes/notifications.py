@@ -26,6 +26,9 @@ def notification_href(notification, user):
                 return f"/leads?search={quote_plus(lead.name)}"
             return f"/leads?search={quote_plus(name)}"
         return "/leads"
+    if notification.type == "campaign_reply":
+        reply_match = re.search(r"reply from\s+(.+)$", notification.title or "", re.IGNORECASE)
+        return f"/leads?search={quote_plus(reply_match.group(1).strip())}" if reply_match else "/leads"
     if notification.type and notification.type.startswith("task"):
         return "/tasks"
     return None
@@ -69,5 +72,4 @@ def read_all():
     Notification.query.filter_by(user_id=current_user().id, is_read=0).update({"is_read": 1})
     db.session.commit()
     return jsonify({"message": "All read"})
-
 

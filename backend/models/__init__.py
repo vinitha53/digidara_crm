@@ -5,6 +5,9 @@ from .customer_document import CustomerDocument
 from .customer_note import CustomerNote
 from .task import Task
 from .campaign import Campaign
+from .campaign_recipient import CampaignRecipient
+from .whatsapp_template import WhatsAppTemplate
+from .message_event import MessageEvent
 from .message_log import MessageLog
 from .communication_summary import CommunicationSummary
 from .meeting_invite import MeetingInvite
@@ -29,6 +32,9 @@ __all__ = [
     "CustomerDocument",
     "Task",
     "Campaign",
+    "CampaignRecipient",
+    "WhatsAppTemplate",
+    "MessageEvent",
     "MessageLog",
     "CommunicationSummary",
     "MeetingInvite",

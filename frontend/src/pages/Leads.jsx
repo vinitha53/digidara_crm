@@ -60,6 +60,11 @@ const emptyLead = {
   source: "website",
   assigned_to: "",
   notes: "",
+  marketing_opt_in: false,
+  whatsapp_opt_in: false,
+  opted_out: false,
+  destination: "",
+  travel_date: "",
 };
 const emptyAdvanced = {
   lost_reason: "",
@@ -728,11 +733,14 @@ export default function Leads() {
       <Drawer open={drawer} title={drawer?.name} onClose={() => setDrawer(null)}>
         {drawer && <div className="detail">
           <Badge tone={drawer.lead_category === "business" ? "teal" : "purple"}>{categoryLabel(drawer.lead_category)}</Badge>
+          {drawer.opted_out && <Badge tone="red">Do Not Message</Badge>}
           <p><strong>Phone:</strong> {drawer.phone}</p>
           <p><strong>Gmail:</strong> {drawer.email || "-"}</p>
           <p><strong>Interest:</strong> {interestName(drawer)}</p>
           <p><strong>Source:</strong> {sourceLabel(drawer.source, drawer.source_system)}</p>
           <p><strong>Assigned Staff:</strong> {drawer.assigned_name || "Unassigned"}</p>
+          <p><strong>WhatsApp marketing consent:</strong> {drawer.marketing_opt_in || drawer.whatsapp_opt_in ? "Granted" : "Pending"}</p>
+          {drawer.opted_out_at && <p><strong>Opted out:</strong> {formatLeadCreatedAt(drawer.opted_out_at)} · {drawer.opted_out_reason || "Customer request"}</p>}
           {drawer.status === "lost" && <p><strong>Why Lost:</strong> {drawer.lost_reason || "-"}</p>}
           {drawer.status === "lost" && drawer.lost_reason_detail && <p><strong>Loss Details:</strong> {drawer.lost_reason_detail}</p>}
           {drawer.lead_category !== "business" && <p><strong>Qualification:</strong> {drawer.qualification || "-"}</p>}
@@ -822,6 +830,8 @@ function LeadForm({ form, set, save, editing, onCancel, courseOptions, internshi
           {form.lead_category === "internship" && <label className="field wide"><span>Internship Name</span><select value={form.internship_name || ""} onChange={(e) => set("internship_name", e.target.value)} required><option value="">Select internship</option>{internshipOptions.map((internship) => <option value={internship} key={internship}>{internship}</option>)}</select></label>}
           {isBusiness && <label className="field wide"><span>Client / Company Name</span><input value={form.business_name || ""} onChange={(e) => set("business_name", e.target.value)} required /></label>}
           {isBusiness && <label className="field wide"><span>Services</span><select value={form.business_requirement || ""} onChange={(e) => set("business_requirement", e.target.value)} required><option value="">Select service</option>{businessServices.map((service) => <option value={service} key={service}>{service}</option>)}</select></label>}
+          <label className="field"><span>Destination</span><input value={form.destination || ""} onChange={(e) => set("destination", e.target.value)} placeholder="Optional destination" /></label>
+          <label className="field"><span>Travel / start date</span><input type="date" value={form.travel_date || ""} onChange={(e) => set("travel_date", e.target.value)} /></label>
         </div>
       </div>
 
@@ -834,6 +844,9 @@ function LeadForm({ form, set, save, editing, onCancel, courseOptions, internshi
           {(form.status || "new") === "lost" && <label className="field wide"><span>Why Lost</span><select value={form.lost_reason || ""} onChange={(e) => { set("lost_reason", e.target.value); if (e.target.value !== "Other") set("lost_reason_detail", ""); }} required><option value="">Choose a loss category</option>{lostReasonOptions.map((reason) => <option value={reason} key={reason}>{reason}</option>)}</select></label>}
           {(form.status || "new") === "lost" && form.lost_reason === "Other" && <label className="field wide"><span>Why Lost Details</span><textarea value={form.lost_reason_detail || ""} onChange={(e) => set("lost_reason_detail", e.target.value)} placeholder="Briefly explain why this lead was lost" required /></label>}
           <label className="field wide"><span>Notes</span><textarea value={form.notes || ""} onChange={(e) => set("notes", e.target.value)} /></label>
+          <label className="toggle wide"><input type="checkbox" checked={Boolean(form.marketing_opt_in)} onChange={(e) => set("marketing_opt_in", e.target.checked)} />Marketing consent recorded</label>
+          <label className="toggle wide"><input type="checkbox" checked={Boolean(form.whatsapp_opt_in)} onChange={(e) => set("whatsapp_opt_in", e.target.checked)} />WhatsApp opt-in recorded</label>
+          {editing && <label className="toggle wide"><input type="checkbox" checked={Boolean(form.opted_out)} onChange={(e) => set("opted_out", e.target.checked)} />Do Not Message / opted out</label>}
         </div>
       </div>
 

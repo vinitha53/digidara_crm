@@ -7,7 +7,7 @@ export const pageActions = {
   calendar: ["view", "schedule"],
   ai_chat: ["view", "ask"],
   ai_followups: ["view", "generate", "send", "run"],
-  campaigns: ["view", "create", "update", "send", "schedule"],
+  campaigns: ["view", "create", "update", "send", "schedule", "pause", "cancel", "export", "manage_templates"],
   communication: ["view", "send"],
   whatsapp_messages: ["view"],
   reports: ["view", "export"],
