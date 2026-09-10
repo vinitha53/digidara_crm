@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { IconBrandWhatsapp, IconBriefcase, IconColumns3, IconEdit, IconFilter, IconLayoutList, IconMail, IconPlus, IconSchool, IconSend, IconUserCheck } from "@tabler/icons-react";
+import { IconBrandWhatsapp, IconBriefcase, IconColumns3, IconEdit, IconFilter, IconLayoutList, IconMail, IconPlus, IconSchool, IconSearch, IconSend, IconUserCheck } from "@tabler/icons-react";
 import api from "../api/client";
 import Badge from "../components/UI/Badge.jsx";
 import Button from "../components/UI/Button.jsx";
@@ -62,8 +62,6 @@ const emptyLead = {
   notes: "",
 };
 const emptyAdvanced = {
-  search: "",
-  source: "",
   lost_reason: "",
   city: "",
   service: "",
@@ -73,6 +71,13 @@ const emptyAdvanced = {
   expected_from: "",
   expected_to: "",
 };
+const emptySmartFilters = {
+  search: "",
+  source: "",
+  status: "",
+  created_from: "",
+  created_to: "",
+};
 const advancedFilterKeys = Object.keys(emptyAdvanced);
 const categoryTabs = [
   { value: "all", label: "All Leads" },
@@ -81,7 +86,19 @@ const categoryTabs = [
   { value: "internship", label: "Internships" },
   { value: "project", label: "Projects" },
 ];
-const statusTabs = ["all", "open", "new", "contacted", "qualified", "won", "lost", "hot"];
+const statusTabs = ["all", "open", "new", "contacted", "qualified", "won", "lost", "closed", "not_interested", "converted", "hot"];
+const smartStatusOptions = [
+  { value: "", label: "All statuses" },
+  { value: "open", label: "Open leads" },
+  { value: "new", label: "New" },
+  { value: "contacted", label: "Contacted" },
+  { value: "qualified", label: "Qualified" },
+  { value: "won", label: "Won" },
+  { value: "lost", label: "Lost" },
+  { value: "closed", label: "Closed" },
+  { value: "not_interested", label: "Not Interested" },
+  { value: "converted", label: "Converted" },
+];
 
 function formatLeadCreatedAt(value) {
   if (!value) return "Not available";
@@ -111,6 +128,7 @@ export default function Leads() {
   const [followupDraft, setFollowupDraft] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [advanced, setAdvanced] = useState(emptyAdvanced);
+  const [smartFilters, setSmartFilters] = useState(() => smartFiltersFromSearch(searchParams));
   const [savedViews, setSavedViews] = useState([]);
   const [viewName, setViewName] = useState("");
   const [view, setView] = useState("table");
@@ -142,11 +160,14 @@ export default function Leads() {
     const params = Object.fromEntries(Object.entries({
       ...appliedAdvanced,
       search: searchParams.get("search") || "",
+      source: searchParams.get("source") || "",
       status: searchParams.get("status") || "",
       segment: searchParams.get("segment") || "",
       stage: searchParams.get("stage") || "",
       lead_category: searchParams.get("lead_category") || "",
       lost_reason: searchParams.get("lost_reason") || "",
+      created_from: searchParams.get("created_from") || "",
+      created_to: searchParams.get("created_to") || "",
       page,
       per_page: perPage,
     }).filter(([, value]) => value !== "" && value !== null && value !== undefined));
@@ -172,6 +193,7 @@ export default function Leads() {
 
   useEffect(() => {
     setAdvanced(advancedFromSearch(searchParams));
+    setSmartFilters(smartFiltersFromSearch(searchParams));
   }, [searchParams]);
 
   useEffect(() => {
@@ -218,6 +240,7 @@ export default function Leads() {
   const toggleSelected = (id) => setSelectedIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]);
   const selectedCount = selectedIds.length;
   const setAdvancedField = (key, value) => setAdvanced((old) => ({ ...old, [key]: value }));
+  const setSmartFilter = (key, value) => setSmartFilters((old) => ({ ...old, [key]: value }));
 
   const selectCategory = (value) => {
     const next = new URLSearchParams(searchParams);
@@ -228,14 +251,28 @@ export default function Leads() {
     setSearchParams(next);
   };
 
-  const selectStatus = (value) => {
+  const applySmartFilters = (event) => {
+    event?.preventDefault();
+    if (smartFilters.created_from && smartFilters.created_to && smartFilters.created_from > smartFilters.created_to) {
+      setToast({ type: "error", message: "The From date must be before the To date" });
+      return;
+    }
     const next = new URLSearchParams(searchParams);
-    next.delete("status");
-    next.delete("stage");
-    if (searchParams.get("tag") === "hot") next.delete("tag");
-    if (["new", "contacted", "qualified", "won", "lost"].includes(value)) next.set("status", value);
-    if (value === "open") next.set("stage", "open");
-    if (value === "hot") { next.set("tag", "hot"); next.set("stage", "open"); }
+    ["search", "source", "status", "stage", "created_from", "created_to"].forEach((key) => next.delete(key));
+    const search = smartFilters.search.trim();
+    if (search) next.set("search", search);
+    if (smartFilters.source) next.set("source", smartFilters.source);
+    if (smartFilters.status === "open") next.set("stage", "open");
+    else if (smartFilters.status) next.set("status", smartFilters.status);
+    if (smartFilters.created_from) next.set("created_from", smartFilters.created_from);
+    if (smartFilters.created_to) next.set("created_to", smartFilters.created_to);
+    setSearchParams(next);
+  };
+
+  const clearSmartFilters = () => {
+    const next = new URLSearchParams(searchParams);
+    ["search", "source", "status", "stage", "created_from", "created_to"].forEach((key) => next.delete(key));
+    setSmartFilters(emptySmartFilters);
     setSearchParams(next);
   };
 
@@ -537,15 +574,23 @@ export default function Leads() {
         {categoryTabs.map((tab) => <button type="button" className={categoryFilter === tab.value ? "active" : ""} onClick={() => selectCategory(tab.value)} key={tab.value}>{categoryTabIcon(tab.value)}<span>{tab.label}</span><b>{categoryCount(tab.value)}</b></button>)}
       </nav>
 
-      <section className="lead-control-bar">
-        <div className="lead-status-tabs" aria-label="Lead status">
-          {statusTabs.map((value) => <button type="button" className={filter === value ? "active" : ""} onClick={() => selectStatus(value)} key={value}>{value === "all" ? "All stages" : value}</button>)}
-        </div>
-        <div className="lead-view-actions">
-          <button type="button" className={view === "table" ? "active" : ""} onClick={() => setView("table")}><IconLayoutList size={16} />Table</button>
-          <button type="button" className={view === "pipeline" ? "active" : ""} onClick={() => setView("pipeline")}><IconColumns3 size={16} />Pipeline</button>
-          <button type="button" className={advancedOpen ? "active" : ""} onClick={() => setAdvancedOpen((value) => !value)}><IconFilter size={16} />Filters{appliedFilterCount > 0 && <b className="filter-count">{appliedFilterCount}</b>}</button>
-        </div>
+      <section className="lead-control-bar smart-lead-controls">
+        <form className="lead-smart-filter" onSubmit={applySmartFilters}>
+          <label className="smart-search-field"><span>Search leads</span><div><IconSearch size={17} /><input value={smartFilters.search} onChange={(e) => setSmartFilter("search", e.target.value)} placeholder="Name, phone or email" /></div></label>
+          <label><span>Source</span><select value={smartFilters.source} onChange={(e) => setSmartFilter("source", e.target.value)}><option value="">All sources</option>{sources.map((source) => <option value={source.value} key={source.value}>{source.label}</option>)}</select></label>
+          <label><span>Status</span><select value={smartFilters.status} onChange={(e) => setSmartFilter("status", e.target.value)}>{smartStatusOptions.map((status) => <option value={status.value} key={status.value || "all"}>{status.label}</option>)}</select></label>
+          <label><span>From date</span><input type="date" value={smartFilters.created_from} onChange={(e) => setSmartFilter("created_from", e.target.value)} /></label>
+          <label><span>To date</span><input type="date" value={smartFilters.created_to} onChange={(e) => setSmartFilter("created_to", e.target.value)} /></label>
+          <div className="smart-filter-actions">
+            <Button><IconSearch size={17} />Search</Button>
+            <button type="button" className="smart-clear" onClick={clearSmartFilters}>Clear</button>
+            <div className="lead-view-actions">
+              <button type="button" className={view === "table" ? "active" : ""} onClick={() => setView("table")}><IconLayoutList size={16} />Table</button>
+              <button type="button" className={view === "pipeline" ? "active" : ""} onClick={() => setView("pipeline")}><IconColumns3 size={16} />Pipeline</button>
+              <button type="button" className={advancedOpen ? "active" : ""} onClick={() => setAdvancedOpen((value) => !value)}><IconFilter size={16} />More filters{appliedFilterCount > 0 && <b className="filter-count">{appliedFilterCount}</b>}</button>
+            </div>
+          </div>
+        </form>
       </section>
 
       <div className="lead-utility-actions">
@@ -568,14 +613,12 @@ export default function Leads() {
       {advancedOpen && <Card className="filter-panel">
         <div className="filter-head">
           <div>
-            <h2>Filter leads</h2>
-            <span>Combine filters, then apply them together.</span>
+            <h2>More filters</h2>
+            <span>Narrow results by priority, interest, value or expected close date.</span>
           </div>
           <button type="button" className="ghost-action compact" onClick={clearMoreFilters} disabled={!appliedFilterCount && !advancedFilterKeys.some((key) => advanced[key])}>Clear filters</button>
         </div>
         <div className="lead-filter-grid">
-          <label className="field filter-search"><span>Search</span><input value={advanced.search} onChange={(e) => setAdvancedField("search", e.target.value)} placeholder="Name, phone or email" /></label>
-          <label className="field"><span>Source</span><select value={advanced.source} onChange={(e) => setAdvancedField("source", e.target.value)}><option value="">All sources</option>{sources.map((x) => <option value={x.value} key={x.value}>{x.label}</option>)}</select></label>
           <label className="field"><span>Priority</span><select value={advanced.tag} onChange={(e) => setAdvancedField("tag", e.target.value)}><option value="">All priorities</option>{["new", "hot", "warm", "cold"].map((value) => <option value={value} key={value}>{sentenceCase(value)}</option>)}</select></label>
           <label className="field"><span>Why Lost</span><select value={advanced.lost_reason} onChange={(e) => setAdvancedField("lost_reason", e.target.value)}><option value="">All loss categories</option>{lostReasonOptions.map((reason) => <option value={reason} key={reason}>{reason}</option>)}</select></label>
           <label className="field"><span>City</span><input value={advanced.city} onChange={(e) => setAdvancedField("city", e.target.value)} placeholder="Any city" /></label>
@@ -598,7 +641,7 @@ export default function Leads() {
 
       {view === "table" ? (
         <section className="lead-results">
-          <div className="lead-results-head"><div><strong>{resultTotal} matching lead{resultTotal === 1 ? "" : "s"}</strong><span>{categoryTabs.find((item) => item.value === categoryFilter)?.label || "All Leads"} · {filter === "all" ? "All stages" : filter}</span></div><small>Page {page} of {totalPages}</small></div>
+          <div className="lead-results-head"><div><strong>{resultTotal} matching lead{resultTotal === 1 ? "" : "s"}</strong><span>{categoryTabs.find((item) => item.value === categoryFilter)?.label || "All Leads"} · {smartStatusLabel(filter)}</span></div><small>Page {page} of {totalPages}</small></div>
           <div className="desktop-lead-table"><DataTable columns={columns} data={leads} onRow={openLead} empty="No leads match these filters." /></div>
           <div className="mobile-lead-list">{leads.map((lead) => <article className="mobile-lead-card" onClick={() => openLead(lead)} key={lead.id}><header><div><strong>{lead.name}</strong><span>{interestName(lead)}</span></div><Badge tone={lead.status === "won" ? "teal" : lead.status === "lost" ? "red" : "purple"}>{statusLabels[lead.status] || lead.status}</Badge></header><div className="mobile-lead-badges"><Badge tone={lead.lead_category === "business" ? "teal" : lead.lead_category === "internship" ? "amber" : "purple"}>{categoryLabel(lead.lead_category)}</Badge><Badge tone={lead.tag === "hot" ? "red" : lead.tag === "warm" ? "amber" : "purple"}>{lead.tag}</Badge></div><dl><div><dt>Phone</dt><dd>{lead.phone}</dd></div><div><dt>Source</dt><dd>{sourceLabel(lead.source)}</dd></div><div><dt>Assigned Staff</dt><dd>{lead.assigned_name || "Unassigned"}</dd></div><div><dt>Date and Time</dt><dd><time dateTime={lead.created_at}>{formatLeadCreatedAt(lead.created_at)}</time></dd></div></dl><footer><label onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(lead.id)} onChange={() => toggleSelected(lead.id)} />Select</label><div className="row-actions icon-actions">{can(user, "leads", "update") && <button title="Edit lead" onClick={(event) => { event.stopPropagation(); openEdit(lead); }}><IconEdit size={16} /></button>}{can(user, "communication", "send") && <button title="Send WhatsApp" onClick={(event) => { event.stopPropagation(); openMessage(lead, "WhatsApp"); }}><IconBrandWhatsapp size={16} /></button>}</div></footer></article>)}{!leads.length && <div className="empty">No leads match these filters.</div>}</div>
           {totalPages > 1 && <div className="lead-pagination"><button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button><span>{(page - 1) * perPage + 1}-{Math.min(page * perPage, resultTotal)} of {resultTotal}</span><button type="button" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>Next</button></div>}
@@ -823,6 +866,21 @@ function statusFromSearch(searchParams) {
 
 function advancedFromSearch(searchParams) {
   return Object.fromEntries(advancedFilterKeys.map((key) => [key, searchParams.get(key) || ""]));
+}
+
+function smartFiltersFromSearch(searchParams) {
+  const status = statusFromSearch(searchParams);
+  return {
+    search: searchParams.get("search") || "",
+    source: searchParams.get("source") || "",
+    status: status === "all" ? "" : status === "hot" ? "open" : status,
+    created_from: searchParams.get("created_from") || "",
+    created_to: searchParams.get("created_to") || "",
+  };
+}
+
+function smartStatusLabel(value) {
+  return smartStatusOptions.find((option) => option.value === (value === "all" ? "" : value))?.label || sentenceCase(value);
 }
 
 function categoryTabIcon(value) {

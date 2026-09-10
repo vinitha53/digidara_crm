@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 from extensions import db
@@ -22,6 +22,7 @@ ALLOWED = [
     "expected_close_date", "lost_reason", "lost_reason_detail", "assigned_to", "notes", "city"
 ]
 SOURCES = {"website", "chatbot", "whatsapp", "email", "inperson"}
+IST_OFFSET = timedelta(hours=5, minutes=30)
 
 
 def scoped():
@@ -178,6 +179,12 @@ def list_leads():
         q = q.filter(Lead.expected_close_date >= parse_date(request.args["expected_from"]))
     if request.args.get("expected_to"):
         q = q.filter(Lead.expected_close_date <= parse_date(request.args["expected_to"]))
+    if request.args.get("created_from"):
+        start_date = parse_date(request.args["created_from"])
+        q = q.filter(Lead.created_at >= datetime.combine(start_date, time.min) - IST_OFFSET)
+    if request.args.get("created_to"):
+        end_date = parse_date(request.args["created_to"]) + timedelta(days=1)
+        q = q.filter(Lead.created_at < datetime.combine(end_date, time.min) - IST_OFFSET)
     search = request.args.get("search")
     if search:
         like = f"%{search}%"

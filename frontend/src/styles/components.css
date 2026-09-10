@@ -2600,6 +2600,39 @@ input:focus, select:focus, textarea:focus { background: var(--surface-raised); }
 .lead-segment-tabs button.active { border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); background: var(--primary-light); color: var(--primary-dark); box-shadow: inset 0 -3px 0 var(--primary); }
 
 .lead-control-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.smart-lead-controls {
+  display: grid;
+  align-items: stretch;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-soft);
+}
+.lead-smart-filter { display: grid; grid-template-columns: minmax(240px, 1.7fr) repeat(4, minmax(135px, 1fr)) auto; align-items: end; gap: 10px; }
+.lead-smart-filter label { display: grid; min-width: 0; gap: 6px; }
+.lead-smart-filter label > span { color: var(--text2); font-size: 11px; font-weight: 900; }
+.lead-smart-filter input, .lead-smart-filter select {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface2);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+.lead-smart-filter input:focus, .lead-smart-filter select:focus { border-color: var(--primary); outline: 3px solid color-mix(in srgb, var(--primary) 14%, transparent); }
+.smart-search-field > div { position: relative; }
+.smart-search-field svg { position: absolute; top: 50%; left: 11px; color: var(--text2); transform: translateY(-50%); pointer-events: none; }
+.smart-search-field input { padding-left: 36px; }
+.smart-filter-actions { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+.smart-filter-actions .btn { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.smart-clear { min-height: 42px; padding: 0 10px; border: 0; background: transparent; color: var(--text2); font-size: 12px; font-weight: 900; }
+.smart-clear:hover { color: var(--primary-dark); }
+.smart-filter-actions .lead-view-actions { width: auto; flex-wrap: nowrap; }
 .lead-status-tabs, .lead-view-actions, .lead-utility-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .lead-status-tabs { min-width: 0; }
 .lead-status-tabs button, .lead-view-actions button, .lead-utility-actions button {
@@ -2675,7 +2708,10 @@ input:focus, select:focus, textarea:focus { background: var(--surface-raised); }
   .lead-segment-tabs button { scroll-snap-align: start; }
   .lead-control-bar { align-items: flex-start; flex-direction: column; }
   .lead-view-actions { width: 100%; }
+  .smart-filter-actions .lead-view-actions { width: auto; }
   .lead-view-actions button { flex: 1; }
+  .lead-smart-filter { grid-template-columns: minmax(240px, 2fr) repeat(2, minmax(150px, 1fr)); }
+  .smart-filter-actions { grid-column: 1 / -1; align-self: end; }
 }
 
 @media (max-width: 900px) {
@@ -2688,6 +2724,11 @@ input:focus, select:focus, textarea:focus { background: var(--surface-raised); }
   .lead-bulk-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lead-bulk-bar strong { grid-column: 1 / -1; }
   .dashboard-chart-card.wide { grid-column: auto; }
+  .lead-smart-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .smart-search-field, .smart-filter-actions { grid-column: 1 / -1; }
+  .smart-filter-actions { flex-wrap: wrap; }
+  .smart-filter-actions .btn { flex: 1; }
+  .smart-filter-actions .lead-view-actions { flex: 1 1 100%; }
 }
 
 @media (max-width: 700px) {
@@ -2714,8 +2755,9 @@ input:focus, select:focus, textarea:focus { background: var(--surface-raised); }
   .lead-workspace-head p { font-size: 12px; }
   .lead-workspace-total { min-width: 76px; padding: 10px; }
   .lead-workspace-total strong { font-size: 22px; }
-  .lead-status-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-  .lead-status-tabs button { width: 100%; }
+  .smart-lead-controls { padding: 13px; }
+  .lead-smart-filter { grid-template-columns: 1fr; }
+  .smart-search-field, .smart-filter-actions { grid-column: auto; }
   .lead-view-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .lead-view-actions button { min-width: 0; padding-inline: 7px; font-size: 11px; }
   .lead-utility-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }

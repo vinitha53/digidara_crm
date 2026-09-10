@@ -74,6 +74,19 @@ class LeadOrderingTestCase(unittest.TestCase):
             ["Newer lead", "Older lead"],
         )
 
+    def test_list_filters_by_created_date_range_inclusively(self):
+        newer_date = self.newer.created_at.date().isoformat()
+        response = self.client.get(
+            f"/api/leads/?created_from={newer_date}&created_to={newer_date}",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [lead["name"] for lead in response.get_json()["items"]],
+            ["Newer lead"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
